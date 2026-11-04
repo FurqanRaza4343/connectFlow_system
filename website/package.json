@@ -15,10 +15,10 @@
     "astro": "4.16.18",
     "gsap": "3.12.5",
     "lenis": "1.1.18",
-    "three": "0.169.0"
+    "three": "0.187.0"
   },
   "devDependencies": {
-    "@types/three": "0.169.0",
+    "@types/three": "0.187.0",
     "typescript": "5.6.3"
   }
 }

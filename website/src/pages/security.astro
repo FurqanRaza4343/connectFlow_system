@@ -1,0 +1,131 @@
+---
+import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
+import '../styles/home.css';
+import '../styles/pages.css';
+const APP = import.meta.env.PUBLIC_APP_URL || 'http://app.connectflow.localhost:8080';
+
+const pts = [{ d: 'Day 1', v: 5 }, { d: 'Day 2', v: 10 }, { d: 'Day 3', v: 15 }, { d: 'Day 4', v: 20 }, { d: 'Day 5', v: 30 }, { d: 'Day 6+', v: 40 }];
+const W = 460, H = 250, padL = 30, padB = 30, max = 40, bw = 44;
+const gap = (W - padL - bw * pts.length) / (pts.length - 1);
+const plotH = H - padB - 18;
+const ticks = [0, 10, 20, 30, 40].map((t) => ({ t, y: H - padB - (t / max) * plotH }));
+const bars = pts.map((p, i) => { const h = (p.v / max) * plotH; const x = padL + i * (bw + gap); return { ...p, h, x, y: H - padB - h, cx: x + bw / 2, last: i === pts.length - 1 }; });
+
+const guards = [
+  { icon: 'bolt', t: 'Warm-up and daily caps', d: 'A new number starts with a few first messages a day and ramps up over several days. A separate, lower cap applies to cold first messages. The cap is checked at the moment of sending under a lock, so two jobs running at once cannot exceed it.' },
+  { icon: 'spark', t: 'Human-like pacing', d: 'Messages in a queue go out one at a time with a random gap, inside the active-hours window you set. Traffic looks like a person working through a list, not a script firing in a burst.' },
+  { icon: 'qr', t: 'Number validation first', d: 'Before sending we check that the number is a registered WhatsApp account and in international format. Dead and landline numbers are skipped, so they never hurt the number’s reputation.' },
+  { icon: 'check', t: 'Approval before sending', d: 'By default every message waits in a queue for a human yes. You can edit, regenerate or discard it. Auto-send is opt-in per workspace, and generic fallback text is never auto-sent.' },
+  { icon: 'shield', t: 'Opt-out that sticks', d: 'STOP and similar replies end the conversation immediately, cancel anything queued for that lead, and are remembered. Short opt-outs are acted on directly; longer messages are classified so an ordinary sentence containing “stop” is not mistaken for one.' },
+  { icon: 'users', t: 'Isolation and audit', d: 'Each customer’s leads, messages and numbers are invisible to everyone else. Staff actions go through an audit log. Passwords are hashed, sessions use HttpOnly cookies, and API keys are stored only as hashes.' },
+];
+const checklist = [
+  ['Use a dedicated business number', 'Not your personal one. A restriction on a personal number is much more painful.'],
+  ['Start small and let warm-up work', 'Keep the first days at the default caps. Do not raise limits to “catch up”.'],
+  ['Message people with a reason to hear from you', 'A real signal (hiring, a new listing, a launch) beats a cold blast every time.'],
+  ['Keep messages short, personal and relevant', 'One clear idea and an easy way to say no.'],
+  ['Include a simple opt-out', 'Tell people they can reply STOP. ConnectFlow honours it automatically.'],
+  ['Review every draft before approving', 'You know your market. Edit anything that sounds off.'],
+  ['Watch replies and complaints', 'If many people say “who is this?” or block you, pause and revisit the list.'],
+  ['Follow the rules where your leads live', 'Consent and marketing rules differ by country. Check them.'],
+];
+---
+<Base title="Safety & compliance" current="/security" description="How ConnectFlow protects your WhatsApp number and your data, and the honest limits of unofficial WhatsApp automation.">
+  <div class="wrap page-hero">
+    <span class="eyebrow">Safety &amp; compliance</span>
+    <h1>Honest about risk. <span class="serif">Serious about safeguards.</span></h1>
+    <p class="lead">Automating WhatsApp always carries risk, and cold messaging carries the most. This page explains what ConnectFlow does to lower it, what you should do too, and what no tool can promise.</p>
+  </div>
+
+  <section style="padding-top:12px">
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">The path of every message</span><h2 class="h2">Four gates, <span class="serif">in this order.</span></h2></div>
+      <div class="steps-h">
+        <div class="card" data-reveal><h3>Validate</h3><p>Is it a real WhatsApp number in the right format? If not, it stops here.</p></div>
+        <div class="card" data-reveal><h3>Approve</h3><p>A human reviews and approves the text. Opted-out leads can’t be approved.</p></div>
+        <div class="card" data-reveal><h3>Cap &amp; pace</h3><p>Today’s cap and the warm-up schedule are checked, then a random gap is applied.</p></div>
+        <div class="card" data-reveal><h3>Send &amp; listen</h3><p>The message goes out. Replies are matched; STOP ends the conversation.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">The safeguards</span><h2 class="h2">What’s built in, <span class="serif">in detail.</span></h2></div>
+      <div class="grid g3">
+        {guards.map((g) => <div class="card" data-reveal><Icon name={g.icon} /><h3>{g.t}</h3><p>{g.d}</p></div>)}
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap safety-grid">
+      <div>
+        <div class="sec-head" style="margin-bottom:0"><span class="eyebrow" data-reveal>Warm-up</span><h2 class="h2" data-reveal>A new number <span class="serif">earns its volume.</span></h2>
+          <p class="lead" data-reveal>New accounts that suddenly send a lot look like spam to WhatsApp. ConnectFlow starts every number low and raises the allowance day by day. The schedule below is the default for first messages and can be adjusted per workspace.</p></div>
+        <ul class="ticks" data-reveal><li>Day 1: 5 first messages</li><li>Rises to 40 per day from day 6, then holds</li><li>A separate overall daily allowance applies to replies in existing conversations</li></ul>
+      </div>
+      <div class="chart" id="chart" data-reveal>
+        <h4>First messages allowed per day</h4>
+        <p>Default schedule for a new number.</p>
+        <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Bar chart: 5 first messages on day 1, rising to 40 from day 6">
+          {ticks.map((k) => <line x1={padL} x2={W} y1={k.y} y2={k.y} stroke="#1d2822" />)}
+          {ticks.map((k) => <text x="0" y={k.y + 4} font-size="11" fill="#62726a">{k.t}</text>)}
+          {bars.map((b) => <rect class="bar" x={b.x} y={b.y} width={bw} height={b.h} rx="7" fill={b.last ? '#2ed47a' : '#1f6b45'} />)}
+          {bars.map((b) => <text x={b.cx} y={b.y - 8} text-anchor="middle" font-size="12" fill="#a9efc9" font-weight="500">{b.v}</text>)}
+          {bars.map((b) => <text x={b.cx} y={H - 8} text-anchor="middle" font-size="11" fill="#62726a">{b.d}</text>)}
+        </svg>
+        <div class="legend"><span><i style="background:#1f6b45"></i>Ramp-up days</span><span><i style="background:#2ed47a"></i>Steady daily cap</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">Your part</span><h2 class="h2">A healthy-number <span class="serif">checklist.</span></h2><p class="lead">Tick what you already do. Tools help, but behaviour decides whether a number stays healthy.</p></div>
+      <div class="checklist">
+        {checklist.map((c) => <label><input type="checkbox" /><span><b>{c[0]}</b>{c[1]}</span></label>)}
+      </div>
+      <p class="score" id="score" aria-live="polite"></p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">Limits</span><h2 class="h2">What we <span class="serif">cannot promise.</span></h2></div>
+      <div class="limits">
+        <div class="card warnc" data-reveal><h3>Not the official API</h3><p>ConnectFlow links your number the way WhatsApp Web does (as a linked device). That is not the official WhatsApp Business API, and WhatsApp’s terms restrict automated and bulk messaging. Meta may limit or ban numbers at its discretion, with or without warning.</p></div>
+        <div class="card warnc" data-reveal><h3>No guarantees</h3><p>No tool can guarantee that a number will never be restricted. Warm-up, caps and approval lower the risk; they do not remove it. If you cannot afford to lose a number, use a dedicated one and keep your volume modest.</p></div>
+        <div class="card" data-reveal><h3>Your content, your responsibility</h3><p>You decide who to message and what to say. You are responsible for having a lawful basis to contact people and for honouring opt-outs, which ConnectFlow helps with but cannot guarantee.</p></div>
+        <div class="card" data-reveal><h3>AI can be wrong</h3><p>Drafts can contain mistakes. That is why approval is the default. Read before you send.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">Compliance</span><h2 class="h2">Rules differ <span class="serif">by region.</span></h2><p class="lead">This is general information, not legal advice. Laws change and depend on your situation; check with a qualified local professional.</p></div>
+      <div class="region">
+        <div class="card" data-reveal><h3>Europe &amp; UK</h3><p>Unsolicited electronic marketing to individuals usually needs prior consent, and data-protection law gives people rights over their data and a right to object. Business-to-business rules can differ.</p></div>
+        <div class="card" data-reveal><h3>United States</h3><p>Rules on marketing texts and calls (such as consent requirements) can apply to messaging, and some states add their own. Keep records of consent and honour opt-outs promptly.</p></div>
+        <div class="card" data-reveal><h3>Pakistan &amp; South Asia</h3><p>Data-protection and anti-spam rules are evolving. Be transparent about who you are, avoid sending to people who have objected, and keep contact data secure.</p></div>
+        <div class="card" data-reveal><h3>Middle East &amp; elsewhere</h3><p>Telecom and consumer-protection regulators in many countries restrict unsolicited marketing. Check the rules in each market you contact.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="ent" data-reveal>
+        <div>
+          <span class="eyebrow">Roadmap</span>
+          <h2>An official option <span class="serif">is planned.</span></h2>
+          <p class="lead">For teams that need Meta-sanctioned messaging, we plan to offer the official WhatsApp Cloud API as an alternative connection. It works differently (approved templates for business-initiated messages, a registered business number) and is a better fit for support and opted-in messaging. There is no date yet.</p>
+          <div style="margin-top:24px"><a class="btn btn-primary" href={`${APP}/#signup`}>Start free trial <span class="arr">→</span></a></div>
+        </div>
+        <ul class="ticks"><li>Same workspace, same approval and opt-out rules</li><li>Choose the connection per number</li><li>Tell us if you need it sooner: <a href="/contact" style="color:var(--mint)">contact us</a></li></ul>
+      </div>
+    </div>
+  </section>
+</Base>

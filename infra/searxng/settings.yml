@@ -1,0 +1,49 @@
+# SearXNG for lead enrichment (internal only: the container is not published on any host port).
+use_default_settings: true
+
+general:
+  instance_name: "outreach-search"
+  debug: false
+
+server:
+  # Overridden by SEARXNG_SECRET in docker-compose; any random string works for an internal instance.
+  secret_key: "change-me-in-compose"
+  limiter: false
+  image_proxy: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  # JSON output is what the orchestrator uses
+  formats:
+    - html
+    - json
+
+ui:
+  static_use_hash: true
+
+outgoing:
+  request_timeout: 8.0
+  max_request_timeout: 15.0
+
+# Tested from this PC (query "HR Blend" Karachi): google = access denied, duckduckgo = CAPTCHA, brave = too many
+# requests, qwant = access denied. bing / startpage / mojeek / yahoo answer reliably. Blocked engines only waste time
+# and let noisy fallbacks through, so they are switched off. Re-test with:
+#   .../search?q=...&format=json&engines=<name>  (see "unresponsive_engines" in the JSON)
+engines:
+  - name: google
+    disabled: true
+  - name: duckduckgo
+    disabled: true
+  - name: brave
+    disabled: true
+  - name: qwant
+    disabled: true
+  - name: bing
+    disabled: false
+  - name: startpage
+    disabled: false
+  - name: mojeek
+    disabled: false
+  - name: yahoo
+    disabled: false

@@ -1,0 +1,8 @@
+line-length = 200
+target-version = "py312"
+extend-exclude = ["alembic/versions", "tests/e2e"]
+
+[lint]
+# syntax errors and real bugs (undefined names, unused variables); style is left alone
+select = ["E9", "F"]
+ignore = ["F401", "F841"]

@@ -1,0 +1,34 @@
+---
+// Interactive demo. All data is fictional and clearly labelled; behaviour lives in scripts/demo.ts
+---
+<div class="win" id="demo">
+  <div class="win-bar"><div class="d"><i></i><i></i><i></i></div><div class="url">app.connectflow.com / outreach / review</div><span class="tag">Demo</span></div>
+  <div class="win-body">
+    <div class="leads" id="demo-leads" role="tablist" aria-label="Leads"></div>
+    <div class="work">
+      <div class="work-grid">
+        <div class="panel">
+          <h4><span>Lead research</span><span class="tag" id="d-source">auto</span></h4>
+          <div class="kv" id="d-kv"></div>
+        </div>
+        <div class="panel">
+          <h4><span>First message</span><span class="tag warn" id="d-state">needs approval</span></h4>
+          <div id="d-view" class="msg" aria-live="polite"></div>
+          <textarea id="d-edit" class="msg-edit" hidden aria-label="Edit message"></textarea>
+          <div class="tones" id="d-tones" role="group" aria-label="Tone">
+            <button class="tone on" data-tone="friendly">Friendly</button>
+            <button class="tone" data-tone="formal">Formal</button>
+            <button class="tone" data-tone="short">Shorter</button>
+          </div>
+          <div class="actions">
+            <button class="btn btn-primary btn-sm" id="d-approve">Approve &amp; queue</button>
+            <button class="btn btn-ghost btn-sm" id="d-regen">Regenerate</button>
+            <button class="btn btn-ghost btn-sm" id="d-edit-btn">Edit</button>
+          </div>
+          <div class="queued-box" id="d-queued" role="status"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="demo-foot"><span>Fictional businesses, for illustration. Nothing here is sent.</span><span id="d-cap">Today: 5 / 15 first messages</span></div>
+</div>

@@ -1,0 +1,12 @@
+---
+// Tabbed code sample. Content is passed as plain strings and escaped by Astro, so braces/quotes are safe.
+interface Tab { label: string; code: string; }
+const { tabs, id = 'ct' } = Astro.props as { tabs: Tab[]; id?: string };
+---
+<div class="ctabs" data-ctabs>
+  <div class="ctabs-bar" role="tablist">
+    {tabs.map((t, i) => <button role="tab" aria-selected={i === 0} data-i={i} id={`${id}-t${i}`}>{t.label}</button>)}
+    <button class="cp" data-copy aria-label="Copy code">Copy</button>
+  </div>
+  {tabs.map((t, i) => <pre class={i === 0 ? 'on' : ''} role="tabpanel" aria-labelledby={`${id}-t${i}`}><code>{t.code}</code></pre>)}
+</div>

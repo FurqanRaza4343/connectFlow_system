@@ -1,0 +1,22 @@
+---
+import { plans } from '../data/content';
+const APP = import.meta.env.PUBLIC_APP_URL || 'http://app.connectflow.localhost:8080';
+---
+<div style="display:flex;justify-content:center;margin-bottom:36px" data-reveal>
+  <div class="toggle" data-currency-toggle role="group" aria-label="Currency">
+    <button data-cur="USD" class="on">USD</button><button data-cur="PKR">PKR</button>
+  </div>
+</div>
+<div class="plans">
+  {plans.map((p) => (
+    <div class={`plan${p.pop ? ' pop' : ''}`} data-reveal>
+      {p.pop && <span class="badge">Most popular</span>}
+      <h3>{p.name}</h3>
+      <p class="muted" style="margin-top:6px">{p.blurb}</p>
+      <div class="price"><span class="cur" data-cur-label>USD</span><span data-price data-usd={p.usd} data-pkr={p.pkr}>{p.usd}</span><small> / month</small></div>
+      <ul>{p.items.map((i) => <li>{i}</li>)}</ul>
+      <a class={`btn ${p.pop ? 'btn-primary' : 'btn-ghost'}`} href={`${APP}/#signup`}>{p.cta} <span class="arr">→</span></a>
+    </div>
+  ))}
+</div>
+<p class="note" style="text-align:center;margin-top:28px">Prices shown are launch estimates and may change before general availability. No credit card needed for the trial.</p>

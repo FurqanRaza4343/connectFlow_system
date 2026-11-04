@@ -1,0 +1,52 @@
+---
+import Qr from './Qr.astro';
+const days = [{ d: 'Day 1', v: 5 }, { d: 'Day 2', v: 10 }, { d: 'Day 3', v: 15 }, { d: 'Day 4', v: 20 }, { d: 'Day 5', v: 30 }, { d: 'Day 6+', v: 40 }];
+const max = 40;
+const bars = days.map((x, i) => { const h = (x.v / max) * 105; return { ...x, h, x0: 10 + i * 42, y: 125 - h, cx: 23 + i * 42, last: i === 5 }; });
+---
+<div class="wrap">
+  <div class="car-head">
+    <div class="sec-head">
+      <span class="eyebrow" data-reveal>Everything in one place</span>
+      <h2 class="h2" data-reveal>Built for outreach that <span class="serif">earns replies.</span></h2>
+    </div>
+    <div class="car-ctrl" data-reveal>
+      <button id="car-prev" aria-label="Previous" disabled><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7" /></svg></button>
+      <button id="car-next" aria-label="Next"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7" /></svg></button>
+    </div>
+  </div>
+</div>
+<div>
+  <div class="track" id="track" tabindex="0" aria-label="Features">
+    <article class="fcard"><div class="fviz"><div class="v-qr"><Qr /></div></div><div class="fbody"><h3>Your own number, linked in a minute</h3><p>Scan a QR inside ConnectFlow and your WhatsApp number is connected. Add more numbers as you grow — each workspace is fully isolated.</p></div></article>
+
+    <article class="fcard"><div class="fviz"><div class="v-lines" style="width:80%">
+      <div class="v-head"><div class="av">N</div><div>Northwind Dental<small>researching…</small></div></div>
+      <div class="l" style="width:92%"></div><div class="l" style="width:70%"></div><div class="l" style="width:84%"></div><div class="l" style="width:54%"></div></div></div>
+      <div class="fbody"><h3>AI that researches before it writes</h3><p>It reads the prospect’s website and public profile, then drafts a message that mentions what they actually do. No “Dear Sir/Madam”.</p></div></article>
+
+    <article class="fcard"><div class="fviz"><div class="v-rows">
+      <div class="r"><span class="ck on">✓</span>Northwind Dental<em>approved</em></div>
+      <div class="r"><span class="ck on">✓</span>Orbit Realty<em>approved</em></div>
+      <div class="r"><span class="ck"></span>Pixel Parcel<em style="color:var(--warn)">review</em></div></div></div>
+      <div class="fbody"><h3>Approval-first sending</h3><p>Every message lands in a queue. Edit it, regenerate it with an instruction, approve it — nothing leaves without you.</p></div></article>
+
+    <article class="fcard"><div class="fviz" style="padding:18px 22px 12px"><div class="bars">
+      <svg viewBox="0 0 260 150" role="img" aria-label="Warm-up: daily cap rises from 5 to 40 messages">
+        {bars.map((b) => <rect x={b.x0} y={b.y} width="26" height={b.h} rx="5" fill={b.last ? '#2ed47a' : '#1f6b45'} />)}
+        {bars.map((b) => <text x={b.cx} y="142" text-anchor="middle" font-size="9" fill="#62726a">{b.d.replace('Day ', 'D')}</text>)}
+        {bars.map((b) => <text x={b.cx} y={b.y - 6} text-anchor="middle" font-size="9.5" fill="#a9efc9">{b.v}</text>)}
+      </svg></div></div>
+      <div class="fbody"><h3>A safety engine for your number</h3><p>Warm-up schedules, daily caps, human-like gaps, number validation and instant opt-out on “STOP” — built in, not bolted on.</p></div></article>
+
+    <article class="fcard"><div class="fviz"><div class="v-chat">
+      <div class="b in">Interesting, what does it cost?</div><span class="tag warn tg">Needs human · pricing</span>
+      <div class="b in">Not interested, thanks.</div><span class="tag bad tg">Opt-out recorded</span>
+      <div class="b in">Yes, send details.</div><span class="tag tg">Interested</span></div></div>
+      <div class="fbody"><h3>Replies handled, humans in control</h3><p>Replies are classified and drafted. Pricing questions and complaints are flagged so the right person steps in.</p></div></article>
+
+    <article class="fcard"><div class="fviz"><div class="v-code"><span class="c"># send from your own app</span><br /><span class="k">POST</span> /v1/messages<br />&#123; <span class="s">"instance"</span>: <span class="s">"sales"</span>,<br />&nbsp;&nbsp;<span class="s">"to"</span>: <span class="s">"92300…"</span>,<br />&nbsp;&nbsp;<span class="s">"text"</span>: <span class="s">"Hi Sara…"</span> &#125;<br /><span class="c"># → 202 queued</span></div></div>
+      <div class="fbody"><h3>API and webhooks <span class="tag" style="vertical-align:middle;margin-left:6px">beta</span></h3><p>Send messages and receive events in your own tools. Signed webhooks with retries, and keys scoped to a single number.</p></div></article>
+  </div>
+  <div class="wrap"><div class="progress"><i id="car-progress"></i></div></div>
+</div>

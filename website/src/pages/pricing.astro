@@ -1,0 +1,110 @@
+---
+import Base from '../layouts/Base.astro';
+import Plans from '../components/Plans.astro';
+import Faq from '../components/Faq.astro';
+import '../styles/home.css';
+import '../styles/pages.css';
+const APP = import.meta.env.PUBLIC_APP_URL || 'http://app.connectflow.localhost:8080';
+
+const Y = '✓', N = '—';
+type Row = [string, string, string, string];
+const groups: Array<{ g: string; rows: Row[] }> = [
+  { g: 'Usage', rows: [
+    ['WhatsApp numbers', '1', '3', '10'],
+    ['Messages per day', '50', '500', '3,000'],
+    ['Workspace members', '1', '1', 'Team (roles)'],
+  ] },
+  { g: 'Outreach', rows: [
+    ['AI research & drafting', Y, Y, Y],
+    ['Approval queue', Y, Y, Y],
+    ['Lead import (CSV / Sheet)', Y, Y, Y],
+    ['Lead enrichment (“Improve data”)', N, Y, Y],
+    ['Follow-up sequences (roadmap)', N, Y, Y],
+    ['Reply inbox & needs-human flags', N, Y, Y],
+    ['Custom company knowledge', N, N, Y],
+  ] },
+  { g: 'Safety', rows: [
+    ['Warm-up, daily caps, human-like pacing', Y, Y, Y],
+    ['Number validation before sending', Y, Y, Y],
+    ['Opt-out (STOP) handling', Y, Y, Y],
+    ['Tenant isolation & audit log', Y, Y, Y],
+  ] },
+  { g: 'Developers', rows: [
+    ['API keys & send API', N, Y, Y],
+    ['Webhooks (beta)', N, Y, Y],
+    ['Scoped keys per number', N, Y, Y],
+  ] },
+  { g: 'Support', rows: [
+    ['Email support', Y, Y, Y],
+    ['Priority support', N, N, Y],
+    ['Early access to new features', N, N, Y],
+  ] },
+];
+const billing = [
+  { q: 'How does billing work?', a: 'Plans are billed monthly per workspace, not per message. The Trial needs no card. We are still finalising payment methods: card payments for international customers and local payment options for Pakistan are planned before general availability.' },
+  { q: 'Can I switch plans or cancel?', a: 'Yes. You can upgrade at any time and the new limits apply immediately. You can downgrade or cancel at the end of a billing period, and you can export your leads and conversations before you leave.' },
+  { q: 'What happens if I hit my daily limit?', a: 'Further sends are rejected with a clear “daily limit reached” message until 00:00 UTC. Nothing is lost: queued drafts stay in the queue, and the dashboard shows how much of today’s limit you have used.' },
+  { q: 'Do you offer yearly billing?', a: 'Yearly billing with a discount is planned. Until it is available, plans are monthly. Pricing shown is a launch estimate and may change before general availability.' },
+  { q: 'Which currency should I pick?', a: 'Use the toggle above to see USD or PKR. International customers will be billed in USD; PKR pricing is intended for customers in Pakistan. Taxes may apply depending on where you are.' },
+  { q: 'Is there a fee per WhatsApp message?', a: 'No. We do not charge per message. Your plan sets how many numbers you can link and how many messages you can send per day.' },
+];
+---
+<Base title="Pricing" current="/pricing" description="Simple monthly plans for ConnectFlow. Start with a free trial, no credit card.">
+  <div class="wrap page-hero" style="text-align:center">
+    <span class="eyebrow">Pricing</span>
+    <h1 style="margin-inline:auto">Simple plans. <span class="serif">Start free.</span></h1>
+    <p class="lead" style="margin-inline:auto">Pay per workspace, not per message. Every plan includes the safety engine and approval queue.</p>
+  </div>
+  <section style="padding-top:12px"><div class="wrap"><Plans /></div></section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">Compare</span><h2 class="h2">Every feature, <span class="serif">plan by plan.</span></h2></div>
+      <div class="cmp-wrap" style="padding:0">
+        <table class="cmp-big">
+          <thead><tr><th></th><th>Trial</th><th>Starter</th><th>Growth</th></tr></thead>
+          {groups.map((g) => (
+            <tbody>
+              <tr class="grp"><th colspan="4">{g.g}</th></tr>
+              {g.rows.map((r) => (
+                <tr><th scope="row">{r[0]}</th>{[r[1], r[2], r[3]].map((v, i) => <td class={`${i === 1 ? 'pop ' : ''}${v === Y ? 'yes' : v === N ? 'no' : ''}`}>{v}</td>)}</tr>
+              ))}
+            </tbody>
+          ))}
+        </table>
+      </div>
+      <p class="note" style="margin-top:14px">Features marked “roadmap” or “beta” are not available to everyone yet; see the <a href="/features#roadmap" style="color:var(--mint)">features page</a> for status.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">Usage</span><h2 class="h2">What counts as <span class="serif">a message?</span></h2><p class="lead">The daily limit counts messages we accept for sending from your workspace, from the dashboard or the API, in UTC days.</p></div>
+      <div class="count-grid">
+        <div class="card y"><h3>Counts</h3><ul><li>A first message sent to a lead</li><li>A reply you approve and send</li><li>A message sent through <code class="i">POST /v1/messages</code></li></ul></div>
+        <div class="card n"><h3>Does not count</h3><ul><li>Messages you receive from leads</li><li>Drafts, regenerations and AI research</li><li>Sends that fail or are rejected (for example, a number that is not on WhatsApp): they are refunded</li><li>Reading data through the API</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap" style="max-width:900px">
+      <div class="sec-head"><span class="eyebrow">Billing</span><h2 class="h2">Billing <span class="serif">questions.</span></h2></div>
+      <Faq items={billing} />
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="ent" data-reveal>
+        <div>
+          <span class="eyebrow">Larger teams &amp; agencies</span>
+          <h2>Need more numbers, <span class="serif">or something custom?</span></h2>
+          <p class="lead">Tell us how many numbers and what volume you plan, and we will work out a plan that fits. Agencies managing several clients are welcome.</p>
+          <div style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap"><a class="btn btn-primary" href="/contact">Talk to us <span class="arr">→</span></a><a class="btn btn-ghost" href={`${APP}/#signup`}>Start free instead</a></div>
+        </div>
+        <ul class="ticks"><li>More than 10 numbers or 3,000 messages a day</li><li>Custom onboarding and company knowledge setup</li><li>Priority support and a direct contact</li><li>Early access to the official WhatsApp Cloud API option</li></ul>
+      </div>
+    </div>
+  </section>
+</Base>

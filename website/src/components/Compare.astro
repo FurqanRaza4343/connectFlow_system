@@ -1,0 +1,25 @@
+---
+const rows = [
+  ['Researches each lead before writing', ['n', 'Templates only'], ['p', 'Chatbot flows'], ['y', 'Per-lead AI research']],
+  ['Human approval before sending', ['n', 'Rare'], ['p', 'Optional'], ['y', 'Default']],
+  ['Warm-up, daily caps, pacing', ['n', 'Often none'], ['y', 'Handled by Meta limits'], ['y', 'Built in']],
+  ['Needs message-template approval', ['y', 'No'], ['n', 'Yes — Meta approval'], ['y', 'No']],
+  ['Officially sanctioned by Meta', ['n', 'No'], ['y', 'Yes'], ['n', 'No (official API option planned)']],
+  ['Best for', ['n', 'Mass blasts'], ['n', 'Support & opted-in marketing'], ['y', 'Personal, research-led outreach']],
+];
+const cls = (c: string) => (c === 'y' ? 'y' : c === 'p' ? 'p' : 'n');
+---
+<div class="cmp-wrap" data-reveal>
+  <table class="cmp-t">
+    <thead><tr><th></th><th>Bulk senders</th><th>Official-API platforms</th><th class="us">ConnectFlow</th></tr></thead>
+    <tbody>
+      {rows.map((r) => (
+        <tr><td>{r[0]}</td>
+          <td><span class={cls((r[1] as any)[0])}>{(r[1] as any)[1]}</span></td>
+          <td><span class={cls((r[2] as any)[0])}>{(r[2] as any)[1]}</span></td>
+          <td class="us"><span class={cls((r[3] as any)[0])}>{(r[3] as any)[1]}</span></td></tr>
+      ))}
+    </tbody>
+  </table>
+</div>
+<p class="note" style="margin-top:14px">General categories, not specific products. Official-API platforms are a good choice for support and opted-in marketing; ConnectFlow is built for outbound conversations.</p>

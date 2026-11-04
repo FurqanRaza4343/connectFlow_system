@@ -1,0 +1,48 @@
+---
+// Pure-HTML iPhone 16. First thing painted, and the permanent fallback when WebGL is unavailable / motion is reduced.
+// The screen is authored at the real logical size (393x852) and scaled to the frame by fitPhones() in motion.ts.
+const icons = {
+  back: 'M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z',
+  video: 'M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z',
+  call: 'M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z',
+  mic: 'M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z',
+  camera: 'M12 8.8a3.2 3.2 0 100 6.4 3.2 3.2 0 000-6.4zM9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z',
+  plus: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+  wifi: 'M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4l2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z',
+  ticks: 'M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM.41 13.41L6 19l1.41-1.41L1.83 12 .41 13.41z',
+  sticker: 'M21 12c0-4.97-4.03-9-9-9s-9 4.03-9 9 4.03 9 9 9h2l7-7v-2zm-8 7.5V16c0-1.1.9-2 2-2h3.5L13 19.5z',
+};
+const Ic = (d: string) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+---
+<div class="iphone" aria-hidden="true">
+  <i class="ip-btn ip-action"></i><i class="ip-btn ip-volup"></i><i class="ip-btn ip-voldn"></i>
+  <i class="ip-btn ip-power"></i><i class="ip-btn ip-camctl"></i>
+  <div class="ip-bezel">
+    <div class="ip-screen">
+      <div class="ip-k">
+        <div class="wa-top">
+          <div class="sb"><span class="sb-time">9:41</span><span class="sb-r"><i class="sig"><b></b><b></b><b></b><b></b></i><span class="ic" set:html={Ic(icons.wifi)} /><i class="bat"><b></b></i></span></div>
+          <span class="island"></span>
+          <div class="wa-head">
+            <span class="ic back" set:html={Ic(icons.back)} />
+            <span class="av">S</span>
+            <div class="who"><b>Sara Khan</b><small>online</small></div>
+            <span class="ic vid" set:html={Ic(icons.video)} /><span class="ic cal" set:html={Ic(icons.call)} />
+          </div>
+        </div>
+        <div class="wa-body">
+          <span class="chip-date">TODAY</span>
+          <div class="msg out">Hi Sara, saw Northwind Dental is hiring a front-desk lead. We help clinics cut no-shows with WhatsApp reminders.<em>10:42<span class="ic tk" set:html={Ic(icons.ticks)} /></em></div>
+          <div class="msg in">Interesting! How does it work?<em>10:43</em></div>
+          <div class="msg out">Happy to show you. Two minutes this week?<em>10:44<span class="ic tk" set:html={Ic(icons.ticks)} /></em></div>
+        </div>
+        <div class="wa-input">
+          <span class="ic plus" set:html={Ic(icons.plus)} />
+          <span class="field">Message<span class="ic stk" set:html={Ic(icons.sticker)} /></span>
+          <span class="ic cam" set:html={Ic(icons.camera)} /><span class="ic mic" set:html={Ic(icons.mic)} />
+          <span class="home"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,195 @@
+---
+import Base from '../layouts/Base.astro';
+import Qr from '../components/Qr.astro';
+import '../styles/home.css';
+import '../styles/pages.css';
+const APP = import.meta.env.PUBLIC_APP_URL || 'http://app.connectflow.localhost:8080';
+const warm = [5, 10, 15, 20, 30, 40];
+---
+<Base title="Features" current="/features" description="Number linking by QR, lead import and enrichment, AI research and drafting, an approval queue, a safety engine, reply handling and an API.">
+  <div class="wrap page-hero">
+    <span class="eyebrow">Features</span>
+    <h1>Everything between a spreadsheet and a <span class="serif">conversation.</span></h1>
+    <p class="lead">One workspace takes a list of leads to approved, paced, opt-out-safe WhatsApp messages and handles what comes back. Here is each piece, and what is live today versus coming.</p>
+    <div class="hero-cta" style="margin-top:28px"><a class="btn btn-primary" href={`${APP}/#signup`}>Start free trial <span class="arr">→</span></a><a class="btn btn-ghost" href="#flow">See how data flows</a></div>
+  </div>
+
+  <div class="wrap">
+    <!-- 1 numbers -->
+    <div class="frow">
+      <div class="fcopy">
+        <div class="eyebrow-row"><span class="eyebrow">1 · Numbers</span><span class="tag">Live</span></div>
+        <h2>Link your own number with a QR code.</h2>
+        <p>Open “Add number”, scan the code in WhatsApp → Linked devices, and the number is connected. Each customer gets their own isolated workspace and their own numbers.</p>
+        <ul class="ticks"><li>Several numbers per workspace, limited by plan</li><li>Live status: scanning, connected, disconnected, with automatic reconnect</li><li>Remove a number any time; the link is deleted from our side</li></ul>
+      </div>
+      <div class="vis">
+        <div class="sp-title"><span>Numbers · Add number</span><span class="tag warn">Waiting for scan</span></div>
+        <div class="qrbox"><Qr /></div>
+        <div class="statusrow"><span class="pulse"></span> WhatsApp → Linked devices → Link a device</div>
+      </div>
+    </div>
+
+    <!-- 2 import -->
+    <div class="frow rev">
+      <div class="fcopy">
+        <div class="eyebrow-row"><span class="eyebrow">2 · Leads</span><span class="tag">Live in the legacy tool · porting</span></div>
+        <h2>Import a CSV or a Google Sheet. Missing details get filled in.</h2>
+        <p>Drop in a file or paste a Sheet link. AI maps the columns, de-duplicates by number, and “Improve data” searches the web and the company site for missing websites, emails and phone numbers.</p>
+        <ul class="ticks"><li>AI column mapping for messy headers</li><li>Numbers normalised to international format and checked on WhatsApp before sending</li><li>Everything found is stored with its source, so you can see where it came from</li></ul>
+      </div>
+      <div class="vis">
+        <div class="sp-title"><span>Leads · Import CSV</span><span class="tag">24 leads found</span></div>
+        <div class="mini-table"><div class="r h"><span>Company</span><span>Phone</span><span>Website</span></div><div class="r"><b>Northwind Dental</b><span>+92 300 ••• 4421</span><span>northwind-dental.example</span></div><div class="r"><b>Orbit Realty</b><span>+971 50 ••• 8812</span><span>orbit-realty.example</span></div><div class="r"><b>Pixel Parcel</b><span>+44 7700 ••• 031</span><span>—</span></div></div>
+        <div class="map-row"><span class="tag">Company → company</span><span class="tag">Phone → whatsapp</span><span class="tag warn">1 website missing · will be found</span></div>
+      </div>
+    </div>
+
+    <!-- 3 AI -->
+    <div class="frow">
+      <div class="fcopy">
+        <div class="eyebrow-row"><span class="eyebrow">3 · AI</span><span class="tag">Live in the legacy tool · porting</span></div>
+        <h2>It researches the business, then writes the message.</h2>
+        <p>For each lead the AI reads public information, finds a real signal (hiring, new listings, a launch), and drafts a short first message using your company knowledge and tone. Change the tone, regenerate with an instruction, or write it yourself.</p>
+        <ul class="ticks"><li>Your knowledge base and sender name shape every draft</li><li>Never sends a generic template silently: fallbacks are parked for review</li><li>Every draft is editable before it can be approved</li></ul>
+      </div>
+      <div class="vis">
+        <div class="panel"><h4><span>Lead research</span><span class="tag">auto</span></h4><div class="kv"><div><b>Signal</b><span>Hiring a front-desk lead</span></div><div><b>Pain</b><span>No-shows, manual reminders</span></div><div><b>Angle</b><span>WhatsApp appointment reminders</span></div></div></div>
+        <div class="panel"><h4><span>First message</span><span class="tag warn">needs approval</span></h4><p style="font-size:15px;line-height:1.6">Hi Sara, saw Northwind Dental is hiring a front-desk lead — growing clinics often lose revenue to no-shows. We set up WhatsApp reminders that cut them. Worth a 2-minute look this week?</p></div>
+      </div>
+    </div>
+
+    <!-- 4 approval -->
+    <div class="frow rev">
+      <div class="fcopy">
+        <div class="eyebrow-row"><span class="eyebrow">4 · Approval</span><span class="tag">Live in the legacy tool · porting</span></div>
+        <h2>Nothing leaves without your yes.</h2>
+        <p>Drafts land in a queue. Approve one or many; messages then go out one by one with a random, human-like gap. Cancel the queue any time. Auto-send exists, but it is off by default and opt-in per workspace.</p>
+        <ul class="ticks"><li>Per-number daily cap, enforced even when two jobs run at once</li><li>Restart-safe: a message interrupted mid-send is flagged for review, never silently re-sent</li><li>Full activity log of what was sent, when, and to whom</li></ul>
+      </div>
+      <div class="vis">
+        <div class="sp-title"><span>Approval queue</span><span class="tag">3 ready</span></div>
+        <div class="q"><div class="row"><span class="tag">Approved</span><div class="who">Northwind Dental<small>sends in 0:42</small></div><small>gap 94 s</small></div><div class="row"><span class="tag">Approved</span><div class="who">Orbit Realty<small>sends in 2:16</small></div><small>gap 131 s</small></div><div class="row"><span class="tag warn">Review</span><div class="who">Pixel Parcel<small>waiting for you</small></div><small>edit</small></div></div>
+        <div class="cap"><span><i style="font-style:normal">Today’s cap</i><b style="color:var(--text);font-weight:500">6 / 15</b></span><div class="bar"><i></i></div></div>
+      </div>
+    </div>
+
+    <!-- 5 safety -->
+    <div class="frow">
+      <div class="fcopy">
+        <div class="eyebrow-row"><span class="eyebrow">5 · Safety engine</span><span class="tag">Live</span></div>
+        <h2>Warm-up, caps and pacing, built in.</h2>
+        <p>A new number starts with a handful of first messages a day and ramps up. Caps, gaps and active hours keep traffic looking like a person. Numbers are validated before sending so reputation is not burned on dead numbers.</p>
+        <ul class="ticks"><li>Warm-up schedule and a separate cap for cold first messages</li><li>Active-hours window in your timezone</li><li>STOP and similar replies end the conversation and are remembered</li></ul>
+        <p style="margin-top:16px"><a href="/security" style="color:var(--mint)">How the safety engine works →</a></p>
+      </div>
+      <div class="vis">
+        <div class="sp-title"><span>First messages allowed per day</span><span class="tag">default schedule</span></div>
+        <svg viewBox="0 0 320 150" role="img" aria-label="Warm-up bars from 5 to 40 messages per day" style="width:100%;height:auto">
+          {warm.map((v, i) => <rect x={10 + i * 50} y={125 - v * 2.6} width="34" height={v * 2.6} rx="6" fill={i === 5 ? '#2ed47a' : '#1f6b45'} />)}
+          {warm.map((v, i) => <text x={27 + i * 50} y={118 - v * 2.6} text-anchor="middle" font-size="11" fill="#a9efc9">{v}</text>)}
+          {warm.map((v, i) => <text x={27 + i * 50} y="142" text-anchor="middle" font-size="10" fill="#62726a">{i === 5 ? 'D6+' : 'D' + (i + 1)}</text>)}
+        </svg>
+      </div>
+    </div>
+
+    <!-- 6 replies -->
+    <div class="frow rev">
+      <div class="fcopy">
+        <div class="eyebrow-row"><span class="eyebrow">6 · Replies</span><span class="tag">Live in the legacy tool · porting</span></div>
+        <h2>Replies are classified. Humans stay in control.</h2>
+        <p>Incoming replies are matched to the lead, classified (interested, question, not interested, opt-out) and a reply is drafted. Pricing questions and complaints are flagged “needs human” so the right person steps in.</p>
+        <ul class="ticks"><li>In-app notifications, optionally copied to an admin WhatsApp number</li><li>Opt-outs stop all queued messages for that lead immediately</li><li>Auto-reply is optional and off by default</li></ul>
+      </div>
+      <div class="vis"><div class="v-chat"><div class="b in">Interesting, what does it cost?</div><span class="tag warn tg">Needs human · pricing</span><div class="b in">Not interested, thanks.</div><span class="tag bad tg">Opt-out recorded</span><div class="b in">Yes, send details.</div><span class="tag tg">Interested</span></div></div>
+    </div>
+
+    <!-- 7 follow-ups -->
+    <div class="frow">
+      <div class="fcopy">
+        <div class="eyebrow-row"><span class="eyebrow">7 · Follow-ups</span><span class="tag warn">Roadmap</span></div>
+        <h2>Gentle follow-ups for leads that went quiet.</h2>
+        <p>A short sequence — for example day 3 and day 7 — that stops the moment someone replies or opts out. This is on our roadmap and is not available yet.</p>
+        <ul class="ticks"><li>Each step is drafted by AI and goes through the same approval and safety rules</li><li>Per-lead stop on reply, STOP or manual pause</li></ul>
+      </div>
+      <div class="vis"><div class="seq">
+        <div class="n"><b>Day 0 · First message</b><small>Approved by you, sent with a human-like gap</small></div>
+        <div class="n"><b>Day 3 · Gentle nudge</b><small>Only if no reply. Short, adds one new reason to talk</small></div>
+        <div class="n"><b>Day 7 · Last note</b><small>Polite close, easy to say no</small></div>
+        <div class="n"><b>Always running</b><small>The scheduler wakes each step at the right hour, even overnight. Replies end the sequence.</small></div>
+      </div></div>
+    </div>
+
+    <!-- 8 api -->
+    <div class="frow rev">
+      <div class="fcopy">
+        <div class="eyebrow-row"><span class="eyebrow">8 · API &amp; webhooks</span><span class="tag">API live · webhooks beta</span></div>
+        <h2>Use it from your own systems.</h2>
+        <p>Create scoped API keys, list your numbers and send messages over HTTPS. Receive replies and status changes on signed webhooks. The API follows the same plan limits and safety rules as the dashboard.</p>
+        <ul class="ticks"><li>Keys for all numbers or just one; revoke instantly</li><li>HMAC-signed webhook deliveries with automatic retries</li></ul>
+        <p style="margin-top:16px"><a href="/developers" style="color:var(--mint)">Read the API docs →</a></p>
+      </div>
+      <div class="code"><div class="code-bar"><i></i><i></i><i></i><span style="margin-left:8px">POST /v1/messages</span></div>
+<pre><span class="c"># → 202 Accepted</span>
+<span class="k">curl</span> -X POST $BASE/v1/messages \
+  -H <span class="s">"Authorization: Bearer cf_live_…"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'&#123;"instance":"INSTANCE_ID","to":"923001234567","text":"Hi Sara…"&#125;'</span></pre></div>
+    </div>
+  </div>
+
+  <!-- data flow -->
+  <section class="band" id="flow">
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">How data flows</span><h2 class="h2">From lead to reply, <span class="serif">and what checks each step.</span></h2><p class="lead">Every message passes the same gates, whether it was drafted by AI or sent through the API.</p></div>
+      <div class="flow-wrap">
+        <svg viewBox="0 0 1000 405" role="img" aria-label="Flow: leads, research, draft, approval, safety engine, your number, then reply handling, follow-ups, inbox and webhooks, all driven by a scheduler that runs around the clock">
+          <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2c6a47" /></marker></defs>
+          <g>
+            <rect class="bx" x="10" y="40" width="130" height="64" rx="14" /><text x="75" y="68" text-anchor="middle">Your leads</text><text class="sub" x="75" y="88" text-anchor="middle">CSV · Sheet · API</text>
+            <rect class="bx hl" x="190" y="40" width="130" height="64" rx="14" /><text x="255" y="68" text-anchor="middle">Research</text><text class="sub" x="255" y="88" text-anchor="middle">site + public data</text>
+            <rect class="bx hl" x="370" y="40" width="130" height="64" rx="14" /><text x="435" y="68" text-anchor="middle">AI draft</text><text class="sub" x="435" y="88" text-anchor="middle">your tone + knowledge</text>
+            <rect class="bx" x="550" y="40" width="130" height="64" rx="14" /><text x="615" y="68" text-anchor="middle">Your approval</text><text class="sub" x="615" y="88" text-anchor="middle">edit · approve</text>
+            <rect class="bx hl" x="730" y="40" width="130" height="64" rx="14" /><text x="795" y="68" text-anchor="middle">Safety engine</text><text class="sub" x="795" y="88" text-anchor="middle">caps · pacing · validate</text>
+            <rect class="bx" x="880" y="40" width="110" height="64" rx="14" /><text x="935" y="68" text-anchor="middle">Your number</text><text class="sub" x="935" y="88" text-anchor="middle">WhatsApp</text>
+          </g>
+          <g class="ln"><path d="M140 72H188" marker-end="url(#ar)" /><path d="M320 72H368" marker-end="url(#ar)" /><path d="M500 72H548" marker-end="url(#ar)" /><path d="M680 72H728" marker-end="url(#ar)" /><path d="M860 72H878" marker-end="url(#ar)" /></g>
+          <circle class="pk" r="4"><animateMotion dur="5s" repeatCount="indefinite" path="M75 72H935" /></circle>
+          <text class="lab" x="500" y="136" text-anchor="middle">outbound</text>
+          <path class="ln dash" d="M935 104V170Q935 190 915 190H300" marker-end="url(#ar)" />
+          <text class="lab" x="700" y="182">reply comes back</text>
+          <g>
+            <rect class="bx" x="170" y="160" width="130" height="64" rx="14" /><text x="235" y="188" text-anchor="middle">Reply tracking</text><text class="sub" x="235" y="208" text-anchor="middle">classify · draft</text>
+            <rect class="bx hl" x="10" y="250" width="150" height="60" rx="14" /><text x="85" y="276" text-anchor="middle">Follow-ups</text><text class="sub" x="85" y="296" text-anchor="middle">day 3 · day 7 · roadmap</text>
+            <rect class="bx" x="200" y="250" width="150" height="60" rx="14" /><text x="275" y="276" text-anchor="middle">Inbox + alerts</text><text class="sub" x="275" y="296" text-anchor="middle">needs-human flagged</text>
+            <rect class="bx" x="390" y="250" width="150" height="60" rx="14" /><text x="465" y="276" text-anchor="middle">Webhooks</text><text class="sub" x="465" y="296" text-anchor="middle">signed · retried (beta)</text>
+          </g>
+          <g class="ln"><path d="M215 224L100 250" marker-end="url(#ar)" /><path d="M250 224L270 250" marker-end="url(#ar)" /><path d="M285 224L440 250" marker-end="url(#ar)" /></g>
+          <text class="lab" x="40" y="236" text-anchor="start">no reply</text>
+          <text class="lab" x="300" y="248" text-anchor="start">reply</text>
+          <path class="ln dash" d="M85 250V132" marker-end="url(#ar)" />
+          <text class="lab" x="96" y="140" text-anchor="start">next step is drafted, approved</text>
+          <text class="lab" x="96" y="155" text-anchor="start">and sent like any message</text>
+          <g>
+            <rect x="10" y="338" width="980" height="52" rx="14" fill="none" stroke="#2c6a47" stroke-dasharray="6 6" />
+            <circle cx="40" cy="364" r="5" fill="#2ed47a"><animate attributeName="opacity" values="1;.25;1" dur="1.6s" repeatCount="indefinite" /></circle>
+            <text x="58" y="362" style="fill:#f1f4f1;font-size:15px;font-weight:600">Scheduler: runs around the clock</text>
+            <text class="sub" x="58" y="380">sends only inside your active hours · batches every few hours · follow-ups wake up on day 3 and day 7 · restarts never lose a queued message</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- roadmap -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow">Roadmap</span><h2 class="h2">What’s live, what’s next, <span class="serif">what’s later.</span></h2><p class="lead">We label this honestly. Dates are not promises; scope may change.</p></div>
+      <div class="road">
+        <div class="card now"><h3>Now <span class="tag">Live</span></h3><ul><li>Workspaces, sign-in with email or Google</li><li>Email confirmation, password reset, team invites and roles</li><li>Link numbers by QR, live status</li><li>API keys, send API and signed webhooks (beta)</li><li>Plan limits, usage and upgrade requests</li><li>Your colour and logo on the dashboard</li><li>Admin panel for platform owners</li></ul></div>
+        <div class="card"><h3>Next <span class="tag warn">Building</span></h3><ul><li>Lead import, enrichment and AI drafting in the new app</li><li>Approval queue with warm-up and pacing</li><li>Reply inbox and human hand-off</li><li>Follow-up sequences (day 3, day 7)</li></ul></div>
+        <div class="card"><h3>Later <span class="tag warn">Planned</span></h3><ul><li>Team inbox and assignment</li><li>Two-factor sign-in</li><li>Official WhatsApp Cloud API option</li><li>More integrations (CRM, automation tools)</li></ul></div>
+      </div>
+    </div>
+  </section>
+</Base>

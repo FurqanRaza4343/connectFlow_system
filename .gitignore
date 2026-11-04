@@ -1,0 +1,104 @@
+# =====================================================================
+# ConnectFlow monorepo - DENY BY DEFAULT for anything secret or personal.
+# If you are unsure whether a file is safe, it is not: leave it ignored.
+# Check any path with:   git check-ignore -v <path>
+# =====================================================================
+
+# ---------- secrets (never commit) ----------
+.env
+.env.*
+!.env.example
+!*.env.example
+**/.env
+**/.env.*
+!**/.env.example
+.env.generated
+.api-key
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.enc
+secrets/
+**/secrets/
+credentials*.json
+service-account*.json
+*-sa.json
+.npmrc
+.pypirc
+.netrc
+id_rsa*
+id_ed25519*
+
+# ---------- data and runtime state (customer / prospect / WhatsApp data) ----------
+# The old single-tenant One Group stack: source + RUNTIME DATA (WhatsApp login sessions, SQLite, real leads).
+# It stays on the owner's machine as a private archive and is not part of the product repository.
+legacy/
+# Third-party clones kept for reference only (own .git, 30+ MB)
+vendor/
+# Encrypted/plain backups and database dumps
+backups/
+/backups/
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.db
+*.sql
+*.dump
+*.bak
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.7z
+*.rar
+*.log
+logs/
+/data/
+**/sessions/
+**/baileys/
+**/media/
+qr/
+*.qr.png
+
+# ---------- build output, caches, dependencies ----------
+node_modules/
+dist/
+build/
+.astro/
+.vite/
+.next/
+coverage/
+htmlcov/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+*.egg-info/
+
+# ---------- installers, binaries ----------
+installers/
+*.exe
+*.msi
+*.dmg
+
+# ---------- editor / OS / tooling ----------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+.claude/
+
+# ---------- screenshots and scratch ----------
+scratchpad/
+screenshots/
+*.screenshot.png
+tmp/
+temp/

@@ -1,0 +1,39 @@
+---
+import Icon from './Icon.astro';
+import { safety } from '../data/content';
+const iconFor = ['bolt', 'spark', 'check', 'qr', 'shield', 'users'];
+const pts = [{ d: 'Day 1', v: 5 }, { d: 'Day 2', v: 10 }, { d: 'Day 3', v: 15 }, { d: 'Day 4', v: 20 }, { d: 'Day 5', v: 30 }, { d: 'Day 6+', v: 40 }];
+const W = 460, H = 250, padL = 30, padB = 30, max = 40;
+const bw = 44, gap = (W - padL - bw * pts.length) / (pts.length - 1);
+const plotH = H - padB - 18;
+const ticks = [0, 10, 20, 30, 40].map((t) => ({ t, y: H - padB - (t / max) * plotH }));
+const bars = pts.map((p, i) => { const h = (p.v / max) * plotH; const x = padL + i * (bw + gap); return { ...p, h, x, y: H - padB - h, cx: x + bw / 2, last: i === pts.length - 1 }; });
+---
+<div class="safety-grid">
+  <div>
+    <div class="sec-head" style="margin-bottom:0">
+      <span class="eyebrow" data-reveal>Safety &amp; honesty</span>
+      <h2 class="h2" data-reveal>Protecting your number is the product, <span class="serif">not a footnote.</span></h2>
+      <p class="lead" data-reveal>Automating WhatsApp always carries risk, and we say so plainly. These are the guardrails we build around it.</p>
+    </div>
+    <div class="guards">
+      {safety.slice(0, 4).map((s, i) => (
+        <div class="guard" data-reveal><Icon name={iconFor[i]} /><div><h4>{s.t}</h4><p>{s.d}</p></div></div>
+      ))}
+    </div>
+    <p class="note" style="margin-top:22px;max-width:62ch" data-reveal>ConnectFlow links your number like WhatsApp Web and is not the official WhatsApp Business API. <a href="/security" style="color:var(--mint)">Read the full safety guide →</a></p>
+  </div>
+
+  <div class="chart" id="chart" data-reveal>
+    <h4>Warm-up: first messages allowed per day</h4>
+    <p>Default schedule for a new number. Adjustable per workspace.</p>
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Bar chart: a new number may send 5 first messages on day 1, rising to 40 from day 6">
+      {ticks.map((k) => <line x1={padL} x2={W} y1={k.y} y2={k.y} stroke="#1d2822" />)}
+      {ticks.map((k) => <text x="0" y={k.y + 4} font-size="11" fill="#62726a">{k.t}</text>)}
+      {bars.map((b) => <rect class="bar" x={b.x} y={b.y} width={bw} height={b.h} rx="7" fill={b.last ? '#2ed47a' : '#1f6b45'} />)}
+      {bars.map((b) => <text x={b.cx} y={b.y - 8} text-anchor="middle" font-size="12" fill="#a9efc9" font-weight="500">{b.v}</text>)}
+      {bars.map((b) => <text x={b.cx} y={H - 8} text-anchor="middle" font-size="11" fill="#62726a">{b.d}</text>)}
+    </svg>
+    <div class="legend"><span><i style="background:#1f6b45"></i>Ramp-up days</span><span><i style="background:#2ed47a"></i>Steady daily cap</span></div>
+  </div>
+</div>

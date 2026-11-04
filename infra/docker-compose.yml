@@ -1,0 +1,280 @@
+# ConnectFlow — ONE compose file for the whole product.
+#
+#   cd infra
+#   docker compose up -d --build                 # the SaaS (6 containers: caddy api postgres redis wa-gateway + volumes)
+#   docker compose --profile legacy up -d --build  # + the old One Group stack (openwa, orchestrator) until it is migrated
+#
+# Local URLs (hostnames, NOT localhost: cookies are per host, so each app gets its own cookie jar):
+#   http://connectflow.localhost:8080       marketing website
+#   http://app.connectflow.localhost:8080   customer dashboard + /admin  (API on /api)
+#   http://127.0.0.1:3100                   legacy One Group dashboard   (profile legacy)
+#
+# Secrets live in infra/.env (git-ignored). See .env.example.
+name: connectflow
+
+x-dns: &dns
+  dns: ['1.1.1.1', '8.8.8.8']   # Docker Desktop's DNS forwarder is flaky on some PCs
+
+services:
+  # ---------------------------------------------------------------- web entrypoint
+  caddy:
+    build:
+      context: ..
+      dockerfile: infra/caddy.Dockerfile   # builds frontend + website into the image
+      args:
+        VITE_SITE_URL: ${SITE_URL:-http://connectflow.localhost:8080}
+        PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://app.connectflow.localhost:8080}
+    environment:
+      SCHEME: ${SCHEME:-http}
+      SITE_HOST: ${SITE_HOST:-connectflow.localhost}
+      SITE_URL: ${SITE_URL:-http://connectflow.localhost:8080}
+      APP_HOST: ${APP_HOST:-app.connectflow.localhost}
+      ADMIN_HOST: ${ADMIN_HOST:-admin.connectflow.localhost}
+    ports: ['127.0.0.1:${APP_PORT:-8080}:80']
+    depends_on: [api]
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:2019/config/ || exit 1']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- application
+  api:
+    build: ../backend
+    env_file: .env
+    # OpenWA writes its admin key (.api-key) mode 0600 for uid 997 (official image); we must be that uid to read it.
+    # Verify with: docker compose exec wa-gateway id
+    user: '997:997'
+    environment:
+      DATABASE_URL: postgresql+psycopg://connectflow:${POSTGRES_PASSWORD}@postgres:5432/connectflow
+      REDIS_URL: redis://redis:6379/0
+      OPENWA_URL: http://wa-gateway:2785
+      OPENWA_KEY_FILE: /openwa-data/.api-key
+      INTERNAL_WEBHOOK_URL: http://api:8000/internal/wa-webhook
+      SEARXNG_URL: http://searxng:8080
+    volumes: [openwa-data:/openwa-data:ro]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_started }
+    healthcheck:
+      test: ['CMD', 'python', '-m', 'app.healthcheck', 'api']
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Background worker (same image as api): delivers customer webhooks AND runs the outreach engine
+  # (scheduler for batches/follow-ups, paced sender with warm-up, lead enrichment queue).
+  worker:
+    build: ../backend
+    command: ['python', '-m', 'app.worker']
+    env_file: .env
+    user: '997:997'   # reads the gateway key (.api-key) to send messages, like the api service
+    environment:
+      DATABASE_URL: postgresql+psycopg://connectflow:${POSTGRES_PASSWORD}@postgres:5432/connectflow
+      REDIS_URL: redis://redis:6379/0
+      OPENWA_URL: http://wa-gateway:2785
+      OPENWA_KEY_FILE: /openwa-data/.api-key
+      SEARXNG_URL: http://searxng:8080
+    volumes: [openwa-data:/openwa-data:ro]
+    depends_on:
+      api: { condition: service_started }
+    healthcheck:
+      test: ['CMD', 'python', '-m', 'app.healthcheck', 'worker']   # fails when the worker's Redis heartbeat is older than 60 s
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+
+  # Local mail catcher: every email the app sends (verification, password reset, invites) shows up at http://127.0.0.1:8025
+  # In production remove this service and set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD to a real provider.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports: ['127.0.0.1:8025:8025']
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: connectflow
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: connectflow
+    volumes: [pg-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U connectflow']
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------- WhatsApp gateway for customers (Baileys, no Chromium)
+  wa-gateway:
+    image: ${OPENWA_IMAGE:-ghcr.io/rmyndharis/openwa:latest}
+    <<: *dns
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, KILL, SETGID, SETUID]
+    read_only: true
+    tmpfs: [/tmp]
+    pids_limit: 1024
+    mem_limit: ${GATEWAY_MEM_LIMIT:-4g}   # sizing: 1-5 sessions 1g, 5-10 2g, 10-25 4g, 25-50 8g (OpenWA's own table); split to a 2nd node above ~20-25
+    environment:
+      - NODE_ENV=production
+      - TZ=UTC
+      - PORT=2785
+      - HOME=/tmp
+      - LOG_LEVEL=info
+      - UPDATE_CHECK_ENABLED=false
+      - AUTO_START_SESSIONS=true
+      - ENGINE_TYPE=baileys
+      # data DB on the shared Postgres (single-writer SQLite does not scale to many sessions); the small auth DB stays SQLite on the volume
+      - DATABASE_TYPE=postgres
+      - DATABASE_HOST=postgres
+      - DATABASE_PORT=5432
+      - DATABASE_NAME=openwa
+      - DATABASE_USERNAME=openwa
+      - DATABASE_PASSWORD=${OPENWA_DB_PASSWORD}
+      - DATABASE_SYNCHRONIZE=false
+      - MAX_CONCURRENT_SESSIONS=${GATEWAY_MAX_SESSIONS:-20}   # hard cap: one abuser can no longer exhaust RAM for everyone
+      - MEDIA_DOWNLOAD_ENABLED=false    # we never use inbound media: no disk growth, no memory spikes
+      - SESSION_DATA_PATH=/app/data/sessions
+      - STORAGE_TYPE=local
+      - STORAGE_LOCAL_PATH=/app/data/media
+      - PLUGINS_DIR=/app/data/plugins
+      - STATUS_SEED_ON_READY=false
+      - RATE_LIMIT_SHORT_LIMIT=200
+      - RATE_LIMIT_MEDIUM_LIMIT=3000
+      - RATE_LIMIT_LONG_LIMIT=60000
+      - SSRF_ALLOWED_HOSTS=api          # lets the gateway deliver webhooks to our api service
+      - SEND_PACING_ENABLED=true        # built-in anti-ban pacing / warm-up
+    volumes: [openwa-data:/app/data]
+    depends_on:
+      gateway-db-init: { condition: service_completed_successfully }
+    restart: unless-stopped
+    stop_grace_period: 60s
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:2785/api/health/ready']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # One-shot: creates the `openwa` role/database for the gateway on the shared Postgres (idempotent).
+  gateway-db-init:
+    image: postgres:16-alpine
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      OPENWA_DB_PASSWORD: ${OPENWA_DB_PASSWORD}
+    volumes: ['./scripts/gateway-db-init.sh:/init.sh:ro']
+    command: ['sh', '/init.sh']
+    restart: 'no'
+
+  # Optional: docker compose --profile monitoring up -d   -> http://127.0.0.1:3001  (see docs/RUNBOOK.md for the monitors to create)
+  uptime-kuma:
+    profiles: [monitoring]
+    image: louislam/uptime-kuma:1
+    ports: ['127.0.0.1:3001:3001']
+    volumes: [kuma-data:/app/data]
+    restart: unless-stopped
+
+  # ================================================================ LEGACY (One Group, single tenant) — removed in milestone M4
+  openwa:
+    profiles: [legacy]
+    image: ${OPENWA_IMAGE:-ghcr.io/rmyndharis/openwa:latest}
+    container_name: openwa-api
+    <<: *dns
+    security_opt: ['no-new-privileges:true']
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, KILL, SETGID, SETUID]
+    read_only: true
+    tmpfs: [/tmp]
+    pids_limit: 2048
+    mem_limit: ${LEGACY_OPENWA_MEM_LIMIT:-2g}
+    ports: ['127.0.0.1:${LEGACY_OPENWA_PORT:-2785}:2785']
+    environment:
+      - NODE_ENV=development
+      - TZ=${TZ:-Asia/Karachi}
+      - PORT=2785
+      - HOME=/tmp
+      - XDG_CONFIG_HOME=/tmp/.config
+      - XDG_CACHE_HOME=/tmp/.cache
+      - LOG_LEVEL=info
+      - UPDATE_CHECK_ENABLED=false
+      - AUTO_START_SESSIONS=true
+      - DATABASE_TYPE=sqlite
+      - DATABASE_SYNCHRONIZE=true
+      - ENGINE_TYPE=${LEGACY_ENGINE_TYPE:-}
+      - SESSION_DATA_PATH=/app/data/sessions
+      - PUPPETEER_HEADLESS=true
+      - PUPPETEER_ARGS=--no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage,--disable-gpu
+      - PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/puppeteer-chrome
+      - WWEBJS_AUTH_TIMEOUT_MS=${WWEBJS_AUTH_TIMEOUT_MS:-120000}
+      - WWEBJS_WEB_VERSION=${WWEBJS_WEB_VERSION:-2.3000.1052070306-alpha}
+      - STORAGE_TYPE=local
+      - STORAGE_LOCAL_PATH=/app/data/media
+      - PLUGINS_DIR=/app/data/plugins
+      - STATUS_SEED_ON_READY=false
+      - WEBHOOK_TIMEOUT=10000
+      - WEBHOOK_RETRY_DELAY=5000
+      - RATE_LIMIT_SHORT_LIMIT=50
+      - RATE_LIMIT_MEDIUM_LIMIT=1500
+      - RATE_LIMIT_LONG_LIMIT=30000
+      - SSRF_ALLOWED_HOSTS=orchestrator
+      - SEND_PACING_ENABLED=true
+      - SEND_PACING_WARMUP_SCHEDULE=${SEND_PACING_WARMUP_SCHEDULE:-20,40,80,160,320}
+      - SEND_PACING_COLD_DAILY_CAP=${SEND_PACING_COLD_DAILY_CAP:-5,10,15,20,30,40}
+    volumes: ['../legacy/openwa-data:/app/data']   # WhatsApp login of the One Group number. BACK THIS UP.
+    restart: unless-stopped
+    stop_grace_period: 75s
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:2785/api/health/ready']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: outreach-search
+    <<: *dns
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+      - SEARXNG_SECRET=${SEARXNG_SECRET:-outreach-local-secret-change-me}
+    volumes: ['./searxng/settings.yml:/etc/searxng/settings.yml:ro']
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETGID, SETUID]
+    logging: { driver: json-file, options: { max-size: '5m', max-file: '2' } }
+    restart: unless-stopped
+
+  orchestrator:
+    profiles: [legacy]
+    build: ../legacy/orchestrator
+    container_name: outreach-orchestrator
+    <<: *dns
+    depends_on:
+      openwa: { condition: service_healthy }
+      searxng: { condition: service_started }
+    env_file: ../legacy/orchestrator/.env
+    environment:
+      - OPENWA_URL=http://openwa:2785
+      - WEBHOOK_PUBLIC_URL=http://orchestrator:3100/webhook
+      - SEARXNG_URL=http://searxng:8080
+      - TZ=${TZ:-Asia/Karachi}
+    volumes:
+      - ../legacy/orchestrator/state:/app/state   # leads, messages, drafts, settings (SQLite)
+      - ../legacy/data:/data                      # company knowledge (*.md) and first-start leads.csv
+    ports: ['127.0.0.1:${LEGACY_DASHBOARD_PORT:-3100}:3100']
+    restart: unless-stopped
+
+volumes:
+  pg-data:
+  openwa-data:
+  kuma-data:

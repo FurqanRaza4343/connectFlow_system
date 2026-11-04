@@ -1,0 +1,10 @@
+#!/bin/sh
+# ConnectFlow pre-commit: block secrets / personal data. Enable once with: sh infra/scripts/install-hooks.sh
+root="$(git rev-parse --show-toplevel)"
+PY="$(command -v python3 || command -v python)"
+[ -z "$PY" ] && { echo "pre-commit: python not found, cannot scan for secrets" >&2; exit 1; }
+"$PY" "$root/infra/scripts/check-secrets.py" --staged || {
+  echo "" >&2
+  echo "Commit blocked by check-secrets. Fix the findings above (never use --no-verify to push a secret)." >&2
+  exit 1
+}

@@ -1,0 +1,9 @@
+---
+import { faqs } from '../data/content';
+const { items = faqs } = Astro.props;
+---
+<div class="faq">
+  {items.map((f: { q: string; a: string }) => (
+    <details data-reveal><summary>{f.q}</summary><p>{f.a}</p></details>
+  ))}
+</div>

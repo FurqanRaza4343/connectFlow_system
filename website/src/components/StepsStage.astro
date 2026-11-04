@@ -1,0 +1,64 @@
+---
+import Qr from './Qr.astro';
+import { steps } from '../data/content';
+---
+<div class="how-grid">
+  <div class="how-left">
+    <div class="sec-head">
+      <span class="eyebrow" data-reveal>How it works</span>
+      <h2 class="h2" data-reveal>From a spreadsheet to a <span class="serif">conversation</span> in four steps.</h2>
+      <p class="lead" data-reveal>No templates to get approved, no developers needed. Connect, import, review, send.</p>
+    </div>
+    <div class="steps" id="steps" role="tablist" aria-label="How it works">
+      {steps.map((s, i) => (
+        <button class={`step${i === 0 ? ' on' : ''}`} role="tab" aria-selected={i === 0} data-step={i} data-reveal>
+          <span class="n">{i + 1}</span>
+          <span><h3>{s.t}</h3><p>{s.d}</p></span>
+        </button>
+      ))}
+    </div>
+  </div>
+
+  <div class="stage-wrap">
+    <div class="stage" id="stage">
+      <div class="stage-dots"><i></i><i></i><i></i></div>
+
+      <div class="sp on" data-panel="0">
+        <div class="sp-title"><span>Numbers · Add number</span><span class="tag warn">Waiting for scan</span></div>
+        <div class="qrbox"><Qr /></div>
+        <div class="statusrow"><span class="pulse"></span> Open WhatsApp → Linked devices → Link a device</div>
+      </div>
+
+      <div class="sp" data-panel="1">
+        <div class="sp-title"><span>Leads · Import CSV</span><span class="tag">24 leads found</span></div>
+        <div class="mini-table">
+          <div class="r h"><span>Company</span><span>Phone</span><span>Website</span></div>
+          <div class="r"><b>Northwind Dental</b><span>+92 300 ••• 4421</span><span>northwind-dental.example</span></div>
+          <div class="r"><b>Orbit Realty</b><span>+971 50 ••• 8812</span><span>orbit-realty.example</span></div>
+          <div class="r"><b>Pixel Parcel</b><span>+44 7700 ••• 031</span><span>—</span></div>
+        </div>
+        <div class="map-row"><span class="tag">Company → company</span><span class="tag">Phone → whatsapp</span><span class="tag">Site → website</span><span class="tag warn">1 website missing · will be found</span></div>
+      </div>
+
+      <div class="sp" data-panel="2">
+        <div class="sp-title"><span>Orbit Realty · Research</span><span class="tag">AI</span></div>
+        <div class="chk">
+          <div><i>✓</i> Found official website and contact page</div>
+          <div><i>✓</i> Listings growing: 14 new properties this month</div>
+          <div><i>✓</i> Pain point: slow follow-up on enquiries</div>
+          <div><i>✓</i> First message drafted in a warm, concise tone</div>
+        </div>
+      </div>
+
+      <div class="sp" data-panel="3">
+        <div class="sp-title"><span>Approval queue</span><span class="tag">3 ready</span></div>
+        <div class="q">
+          <div class="row"><span class="tag">Approved</span><div class="who">Northwind Dental<small>sends in 0:42</small></div><small>gap 94 s</small></div>
+          <div class="row"><span class="tag">Approved</span><div class="who">Orbit Realty<small>sends in 2:16</small></div><small>gap 131 s</small></div>
+          <div class="row"><span class="tag warn">Review</span><div class="who">Pixel Parcel<small>waiting for you</small></div><small>edit</small></div>
+        </div>
+        <div class="cap"><span><i style="font-style:normal">Today’s cap</i><b style="color:var(--text);font-weight:500">6 / 15</b></span><div class="bar"><i></i></div></div>
+      </div>
+    </div>
+  </div>
+</div>

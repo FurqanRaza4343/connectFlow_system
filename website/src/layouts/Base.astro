@@ -1,0 +1,77 @@
+---
+import '../styles/global.css';
+
+interface Props { title: string; description?: string; current?: string; }
+const { title, description = 'ConnectFlow researches every prospect, writes the first WhatsApp message, and protects your number. You approve, it sends.', current = '' } = Astro.props;
+const APP = import.meta.env.PUBLIC_APP_URL || 'http://app.connectflow.localhost:8080';
+const fullTitle = title === 'ConnectFlow' ? 'ConnectFlow — Find leads. Win them on WhatsApp.' : `${title} — ConnectFlow`;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const links = [
+  { href: '/features', label: 'Features' },
+  { href: '/pricing', label: 'Pricing' },
+  { href: '/developers', label: 'Developers' },
+  { href: '/security', label: 'Safety' },
+];
+---
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0a0e0c" />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <script is:inline>document.documentElement.classList.remove('no-js');if(matchMedia('(prefers-reduced-motion: reduce)').matches)document.documentElement.classList.add('reduced');</script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <div class="scrollbar" id="scrollbar"></div>
+    <header class="nav">
+      <div class="wrap nav-in">
+        <a class="logo" href="/" aria-label="ConnectFlow home"><img src="/logo.svg" width="30" height="30" alt="" /><span>Connect<b>Flow</b></span></a>
+        <nav class="nav-links" aria-label="Main">
+          {links.map((l) => <a href={l.href} aria-current={current === l.href ? 'page' : undefined}>{l.label}</a>)}
+        </nav>
+        <div class="nav-cta">
+          <a class="btn btn-ghost btn-sm" href={`${APP}/#login`}>Log in</a>
+          <a class="btn btn-primary btn-sm" href={`${APP}/#signup`}>Start free</a>
+          <button class="burger" aria-label="Menu" aria-expanded="false" id="burger">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+    <div class="drawer" id="drawer">
+      {links.map((l) => <a href={l.href}>{l.label}</a>)}
+      <a href={`${APP}/#login`}>Log in</a>
+    </div>
+
+    <main id="main"><slot /></main>
+
+    <div class="sticky-cta" id="sticky-cta"><a class="btn btn-primary" href={`${APP}/#signup`}>Start free trial <span class="arr">→</span></a></div>
+
+    <footer>
+      <div class="wrap">
+        <div class="foot">
+          <div>
+            <a class="logo" href="/"><img src="/logo.svg" width="28" height="28" alt="" /><span>Connect<b>Flow</b></span></a>
+            <p class="muted" style="margin-top:14px;max-width:34ch;font-size:15px">Research-led WhatsApp outreach for teams that want replies, not bans.</p>
+          </div>
+          <div><h5>Product</h5><a href="/features">Features</a><a href="/pricing">Pricing</a><a href="/developers">Developers</a><a href={`${APP}/#signup`}>Start free</a></div>
+          <div><h5>Trust</h5><a href="/security">Safety &amp; compliance</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a></div>
+          <div><h5>Company</h5><a href="/contact">Contact</a><a href={`${APP}/#login`}>Log in</a></div>
+        </div>
+        <div class="legal"><span>© {new Date().getFullYear()} ConnectFlow. All rights reserved.</span><span>ConnectFlow is not affiliated with, endorsed by, or sponsored by WhatsApp or Meta.</span></div>
+      </div>
+    </footer>
+    <script>
+      import '../scripts/motion';
+    </script>
+  </body>
+</html>

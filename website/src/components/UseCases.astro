@@ -1,0 +1,22 @@
+---
+const cases = [
+  { id: 'agencies', tab: 'Agencies', who: 'Marketing & web agencies', signal: 'Site has no booking flow and a slow mobile page', quote: 'Hi Daniel — noticed Brightside’s booking page takes ~6s to load on mobile. We fixed the same thing for a similar studio last month. Want the 3-line summary?', outcome: 'Fewer, better-timed pitches that start from a real observation.' },
+  { id: 'recruiters', tab: 'Recruiters', who: 'Staffing & recruitment teams', signal: 'Company is hiring three roles for the same team', quote: 'Hi Maya — saw Orbit is hiring three backend engineers. I have two vetted candidates available this month. Should I share profiles?', outcome: 'Reach hiring managers while the role is still open.' },
+  { id: 'realestate', tab: 'Real estate', who: 'Brokers & developers', signal: 'Owner listed a property that has been live for 60+ days', quote: 'Hi Omar — your Marina flat has been listed a while. I have two buyers looking in that range. Open to a quick chat?', outcome: 'Warm, specific openers instead of generic “any property to sell?”.' },
+  { id: 'clinics', tab: 'Clinics', who: 'Clinics & service businesses', signal: 'Practice relies on phone bookings only', quote: 'Hi Dr. Rana — many clinics lose revenue to no-shows. We set up WhatsApp reminders that cut them. Worth a 2-minute look?', outcome: 'A relevant hook, a soft ask, and an easy way to say no.' },
+  { id: 'b2b', tab: 'B2B sales', who: 'SaaS & B2B sales teams', signal: 'Company just announced a funding round or new office', quote: 'Hi Aisha — congrats on the new Dubai office. Teams expanding like yours often struggle to keep leads warm. Can I show you how others handle it?', outcome: 'Trigger-based outreach that respects the prospect’s moment.' },
+];
+---
+<div class="uc-tabs" role="tablist" aria-label="Use cases">
+  {cases.map((c, i) => <button class="uc-tab" role="tab" aria-selected={i === 0} data-uc={c.id}>{c.tab}</button>)}
+</div>
+{cases.map((c, i) => (
+  <div class={`uc-panel${i === 0 ? ' on' : ''}`} data-ucp={c.id} role="tabpanel">
+    <div class="card">
+      <span class="tag">Example · illustrative</span>
+      <h3>{c.who}</h3>
+      <div class="uc-meta"><div><b>Signal</b><span>{c.signal}</span></div><div><b>Outcome</b><span>{c.outcome}</span></div></div>
+    </div>
+    <div class="card"><p class="quote">“{c.quote}”</p><p class="note" style="margin-top:16px">Drafted by ConnectFlow · reviewed and approved by you</p></div>
+  </div>
+))}

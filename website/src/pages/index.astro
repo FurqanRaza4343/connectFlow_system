@@ -1,0 +1,169 @@
+---
+import Base from '../layouts/Base.astro';
+import '../styles/home.css';
+import Phone from '../components/Phone.astro';
+import StepsStage from '../components/StepsStage.astro';
+import Demo from '../components/Demo.astro';
+import FeatureCarousel from '../components/FeatureCarousel.astro';
+import UseCases from '../components/UseCases.astro';
+import SafetyChart from '../components/SafetyChart.astro';
+import Compare from '../components/Compare.astro';
+import Faq from '../components/Faq.astro';
+import Plans from '../components/Plans.astro';
+const APP = import.meta.env.PUBLIC_APP_URL || 'http://app.connectflow.localhost:8080';
+const tick = '<path d="M5 12.5l4.5 4.5L19 7.5"/>';
+const strip = [
+  ['Your own number, linked by QR', '<path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v6h-4"/>'],
+  ['Approval before every send', tick],
+  ['STOP respected, always', '<path d="M12 3l8 3v6c0 4.5-3.2 8.2-8 9-4.8-.8-8-4.5-8-9V6z"/>'],
+  ['No message templates to approve', '<path d="M5 12h14M13 6l6 6-6 6"/>'],
+];
+---
+<Base title="ConnectFlow">
+  <!-- ================= HERO ================= -->
+  <section class="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <a class="pill" href="/features" data-hero-in><b>New</b> Approval-first AI outreach →</a>
+        <h1>
+          <span class="line"><span>Find leads.</span></span>
+          <span class="line"><span>Win them on</span></span>
+          <span class="line"><span class="serif">WhatsApp.</span></span>
+        </h1>
+        <p class="lead" data-hero-in>ConnectFlow researches every prospect, writes the first message, and keeps your number safe. You approve — it sends.</p>
+        <div class="hero-cta" data-hero-in>
+          <a class="btn btn-primary" href={`${APP}/#signup`}>Start free trial <span class="arr">→</span></a>
+          <a class="btn btn-ghost" href="#demo">Try the demo</a>
+        </div>
+        <div class="micro" data-hero-in><span>Free trial</span><span>No credit card</span><span>Your own number</span></div>
+      </div>
+      <div class="hero-stage" id="hero-stage">
+        <div class="hero-fallback"><Phone /></div>
+        <div class="chip c1" data-depth="22"><i>✓</i><div><b>Lead researched</b><small>Northwind Dental</small></div></div>
+        <div class="chip c2" data-depth="38"><i>↗</i><div><b>Message approved</b><small>queued · sends in 0:42</small></div></div>
+        <div class="chip c3" data-depth="16"><i>“</i><div><b>Yes, send details.</b><small>reply · interested</small></div></div>
+        <div class="chip c4" data-depth="30"><i>⛨</i><div><b>Opt-out respected</b><small>STOP → never contacted again</small></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= TRUST STRIP ================= -->
+  <div class="strip"><div class="wrap strip-in">
+    {strip.map(([t, d]) => <div data-reveal><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" set:html={d} />{t}</div>)}
+  </div></div>
+
+  <!-- ================= CONTRAST ================= -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head center"><span class="eyebrow" data-reveal>Why it works</span><h2 class="h2" data-reveal>Fewer messages. <span class="serif">Better ones.</span></h2></div>
+      <div class="vs">
+        <div class="card bad-card" data-reveal>
+          <span class="tag bad">Typical bulk tools</span>
+          <h3>Blast the same text to everyone</h3>
+          <ul><li>Generic copy, no research</li><li>No limits, no warm-up</li><li>Complaints rise, numbers get flagged</li></ul>
+        </div>
+        <div class="card good-card" data-reveal>
+          <span class="tag">ConnectFlow</span>
+          <h3>One researched message per lead</h3>
+          <ul><li>Each message shows you looked</li><li>Paced, capped and approved by you</li><li>Opt-out built in, conversations kept</li></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= HOW IT WORKS ================= -->
+  <section class="band" id="how"><div class="wrap"><StepsStage /></div></section>
+
+  <!-- ================= INTERACTIVE DEMO ================= -->
+  <section id="demo-sec">
+    <div class="wrap">
+      <div class="sec-head center">
+        <span class="eyebrow" data-reveal>Try it</span>
+        <h2 class="h2" data-reveal>It does the homework, so the message <span class="serif">doesn’t read like spam.</span></h2>
+        <p class="lead" data-reveal>Pick a lead, change the tone, regenerate, or edit the message yourself. Nothing is sent until you approve.</p>
+      </div>
+      <div data-reveal><Demo /></div>
+    </div>
+  </section>
+
+  <!-- ================= FEATURES ================= -->
+  <section class="band" style="overflow:clip"><FeatureCarousel /></section>
+
+  <!-- ================= USE CASES ================= -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow" data-reveal>Who it’s for</span><h2 class="h2" data-reveal>Outreach that starts from a <span class="serif">real signal.</span></h2></div>
+      <div data-reveal><UseCases /></div>
+    </div>
+  </section>
+
+  <!-- ================= SAFETY ================= -->
+  <section class="band" id="safety"><div class="wrap"><SafetyChart /></div></section>
+
+  <!-- ================= COMPARE ================= -->
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="eyebrow" data-reveal>Where we fit</span><h2 class="h2" data-reveal>Built for outbound, <span class="serif">not broadcast.</span></h2></div>
+      <Compare />
+    </div>
+  </section>
+
+  <!-- ================= DEVELOPERS ================= -->
+  <section class="band">
+    <div class="wrap dev-grid">
+      <div class="sec-head" style="margin:0">
+        <span class="eyebrow" data-reveal>For developers · private beta</span>
+        <h2 class="h2" data-reveal>Plug it into the tools you <span class="serif">already use.</span></h2>
+        <p class="lead" data-reveal>Send messages from your own app with a scoped API key. Replies and status changes arrive on signed webhooks (beta).</p>
+        <div data-reveal><a class="btn btn-ghost" href="/developers">Explore the API <span class="arr">→</span></a></div>
+      </div>
+      <div class="code" data-reveal>
+        <div class="code-bar"><i></i><i></i><i></i><span style="margin-left:8px">POST /v1/messages</span></div>
+<pre><span class="c"># send a message  (→ 202 Accepted)</span>
+<span class="k">curl</span> -X POST $BASE/v1/messages \
+  -H <span class="s">"Authorization: Bearer cf_live_…"</span> \
+  -H <span class="s">"Content-Type: application/json"</span> \
+  -d <span class="s">'&#123;"instance":"INSTANCE_ID","to":"923001234567",
+       "text":"Hi Sara, quick question…"&#125;'</span>
+
+<span class="c"># webhook · beta  (X-ConnectFlow-Signature: sha256=…)</span>
+&#123;
+  <span class="n">"event"</span>: <span class="s">"message.received"</span>,
+  <span class="n">"instance"</span>: &#123; <span class="n">"id"</span>: <span class="s">"INSTANCE_ID"</span>, <span class="n">"label"</span>: <span class="s">"Sales"</span> &#125;,
+  <span class="n">"data"</span>: &#123; <span class="n">"from"</span>: <span class="s">"923001234567"</span>, <span class="n">"text"</span>: <span class="s">"Yes, send details."</span> &#125;
+&#125;</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= PRICING ================= -->
+  <section id="pricing">
+    <div class="wrap">
+      <div class="sec-head center">
+        <span class="eyebrow" data-reveal>Pricing</span>
+        <h2 class="h2" data-reveal>Simple plans. <span class="serif">Start free.</span></h2>
+        <p class="lead" data-reveal>Pay per workspace, not per message. Upgrade when your pipeline outgrows the trial.</p>
+      </div>
+      <Plans />
+    </div>
+  </section>
+
+  <!-- ================= FAQ ================= -->
+  <section class="band">
+    <div class="wrap" style="max-width:880px">
+      <div class="sec-head"><span class="eyebrow" data-reveal>FAQ</span><h2 class="h2" data-reveal>Straight answers.</h2></div>
+      <Faq />
+    </div>
+  </section>
+
+  <!-- ================= FINAL CTA ================= -->
+  <section>
+    <div class="wrap">
+      <div class="cta" data-reveal>
+        <h2>Your next customer is one <span class="serif">good message</span> away.</h2>
+        <p class="lead">Link a number, import a few leads, and review your first AI-drafted messages today.</p>
+        <div><a class="btn btn-primary" href={`${APP}/#signup`}>Start free trial <span class="arr">→</span></a></div>
+      </div>
+    </div>
+  </section>
+</Base>

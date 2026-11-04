@@ -1,0 +1,76 @@
+# Single web entrypoint. Hosts come from env so the same file serves local (*.localhost) and production domains.
+#   local : SCHEME=http  SITE_HOST=connectflow.localhost  APP_HOST=app.connectflow.localhost
+#   admin : ADMIN_HOST=admin.connectflow.localhost (admin.example.com in production)
+#   prod  : SCHEME=https SITE_HOST=example.com            APP_HOST=app.example.com   (Caddy then gets TLS certificates by itself)
+{
+	servers {
+		# Cookies of other apps on the same machine can be large; never reject a request for that.
+		max_header_size 1MB
+	}
+}
+
+(security) {
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+}
+
+# ---------------- marketing website (static) ----------------
+{$SCHEME}://{$SITE_HOST} {
+	import security
+	encode zstd gzip
+	root * /srv/website
+	file_server
+	handle_errors {
+		rewrite * /404.html
+		file_server
+	}
+}
+
+# ---------------- customer dashboard + admin (React SPA) and the API ----------------
+{$SCHEME}://{$APP_HOST} {
+	import security
+	encode zstd gzip
+	# /internal/* (gateway -> api) is intentionally NOT routed: it exists only on the private Docker network.
+	handle /api/* {
+		reverse_proxy api:8000 {
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+	# public API (Bearer keys, server-to-server)
+	handle /v1/* {
+		reverse_proxy api:8000 {
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+	handle {
+		root * /srv/app
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# ---------------- platform admin dashboard (separate SPA entry: /admin.html) ----------------
+{$SCHEME}://{$ADMIN_HOST} {
+	import security
+	encode zstd gzip
+	handle /api/* {
+		reverse_proxy api:8000 {
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+	handle {
+		root * /srv/app
+		try_files {path} /admin.html
+		file_server
+	}
+}
+
+# ---------------- fallback: anything else (e.g. http://127.0.0.1:8080) goes to the website instead of a blank page ----------------
+:80 {
+	redir {$SITE_URL}{uri} 302
+}

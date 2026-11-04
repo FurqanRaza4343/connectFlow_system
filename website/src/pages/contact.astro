@@ -1,0 +1,21 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="Contact" description="Talk to the ConnectFlow team.">
+  <div class="wrap page-hero">
+    <span class="eyebrow">Contact</span>
+    <h1>Let’s talk.</h1>
+    <p class="lead">Questions, a demo, or a feature you need? Send a note and we’ll reply.</p>
+  </div>
+  <section style="padding-top:24px">
+    <div class="wrap">
+      <form class="form" action="mailto:hello@connectflow.example" method="post" enctype="text/plain">
+        <label>Name<input name="name" required autocomplete="name" /></label>
+        <label>Work email<input name="email" type="email" required autocomplete="email" /></label>
+        <label>How can we help?<textarea name="message" rows="5" required></textarea></label>
+        <button class="btn btn-primary" type="submit">Send message</button>
+        <p class="note">This form opens your email app. Placeholder address: replace it with the real support inbox before launch.</p>
+      </form>
+    </div>
+  </section>
+</Base>

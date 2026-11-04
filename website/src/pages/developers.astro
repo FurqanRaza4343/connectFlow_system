@@ -1,0 +1,254 @@
+---
+import Base from '../layouts/Base.astro';
+import CodeTabs from '../components/CodeTabs.astro';
+import '../styles/home.css';
+import '../styles/pages.css';
+const APP = import.meta.env.PUBLIC_APP_URL || 'http://app.connectflow.localhost:8080';
+const L = (...lines: string[]) => lines.join('\n');
+
+const listTabs = [
+  { label: 'curl', code: L('curl $BASE/v1/instances \\', '  -H "Authorization: Bearer $CF_KEY"') },
+  { label: 'Node.js', code: L(
+    "const BASE = process.env.CF_BASE; // e.g. https://app.YOURDOMAIN",
+    "const res = await fetch(BASE + '/v1/instances', {",
+    "  headers: { Authorization: 'Bearer ' + process.env.CF_KEY },",
+    "});",
+    "console.log(await res.json());") },
+  { label: 'Python', code: L(
+    'import os, requests',
+    '',
+    'BASE = os.environ["CF_BASE"]  # e.g. https://app.YOURDOMAIN',
+    'r = requests.get(BASE + "/v1/instances", headers={"Authorization": "Bearer " + os.environ["CF_KEY"]})',
+    'print(r.json())') },
+];
+const sendTabs = [
+  { label: 'curl', code: L(
+    'curl -X POST $BASE/v1/messages \\',
+    '  -H "Authorization: Bearer $CF_KEY" \\',
+    '  -H "Content-Type: application/json" \\',
+    `  -d '{"instance":"INSTANCE_ID","to":"923001234567","text":"Hi Sara, quick question about Northwind."}'`) },
+  { label: 'Node.js', code: L(
+    "const res = await fetch(process.env.CF_BASE + '/v1/messages', {",
+    "  method: 'POST',",
+    "  headers: { Authorization: 'Bearer ' + process.env.CF_KEY, 'Content-Type': 'application/json' },",
+    "  body: JSON.stringify({ instance: 'INSTANCE_ID', to: '923001234567', text: 'Hi Sara, quick question about Northwind.' }),",
+    "});",
+    "if (res.status !== 202) throw new Error((await res.json()).detail);",
+    "console.log(await res.json()); // { id, status: 'sent', to, instance }") },
+  { label: 'Python', code: L(
+    'import os, requests',
+    '',
+    'r = requests.post(',
+    '    os.environ["CF_BASE"] + "/v1/messages",',
+    '    headers={"Authorization": "Bearer " + os.environ["CF_KEY"]},',
+    '    json={"instance": "INSTANCE_ID", "to": "923001234567", "text": "Hi Sara, quick question about Northwind."},',
+    ')',
+    'if r.status_code != 202:',
+    '    raise RuntimeError(r.json()["detail"])',
+    'print(r.json())  # {"id": ..., "status": "sent", "to": ..., "instance": ...}') },
+];
+const verifyTabs = [
+  { label: 'Node.js', code: L(
+    "import crypto from 'node:crypto';",
+    "import express from 'express';",
+    '',
+    'const app = express();',
+    '// Verify against the RAW body. Re-serialising parsed JSON changes the bytes and breaks the signature.',
+    "app.post('/webhooks/connectflow', express.raw({ type: 'application/json' }), (req, res) => {",
+    "  const ts = req.header('X-ConnectFlow-Timestamp') || '';",
+    "  const sig = req.header('X-ConnectFlow-Signature') || '';",
+    '  if (Math.abs(Date.now() / 1000 - Number(ts)) > 300) return res.sendStatus(400); // replay window: 5 minutes',
+    '',
+    "  const body = req.body.toString('utf8');",
+    "  const expected = 'sha256=' + crypto.createHmac('sha256', process.env.CF_WEBHOOK_SECRET)",
+    "    .update(ts + '.' + body).digest('hex');",
+    '  const ok = sig.length === expected.length &&',
+    '    crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));',
+    '  if (!ok) return res.sendStatus(401);',
+    '',
+    '  const event = JSON.parse(body);',
+    "  if (event.event === 'message.received') { /* event.data.from, event.data.text */ }",
+    '  res.sendStatus(200); // answer fast, do the real work asynchronously',
+    '});') },
+  { label: 'Python', code: L(
+    'import hashlib, hmac, os, time',
+    'from flask import Flask, request, abort',
+    '',
+    'app = Flask(__name__)',
+    '',
+    '@app.post("/webhooks/connectflow")',
+    'def webhook():',
+    '    ts = request.headers.get("X-ConnectFlow-Timestamp", "")',
+    '    sig = request.headers.get("X-ConnectFlow-Signature", "")',
+    '    if abs(time.time() - float(ts or 0)) > 300:   # replay window: 5 minutes',
+    '        abort(400)',
+    '    raw = request.get_data()                       # raw bytes, not request.json',
+    '    expected = "sha256=" + hmac.new(',
+    '        os.environ["CF_WEBHOOK_SECRET"].encode(), ts.encode() + b"." + raw, hashlib.sha256).hexdigest()',
+    '    if not hmac.compare_digest(sig, expected):',
+    '        abort(401)',
+    '    event = request.get_json()',
+    '    # handle event["event"] == "message.received" ...',
+    '    return "", 200') },
+  { label: 'PHP', code: L(
+    '<?php',
+    '$ts   = $_SERVER["HTTP_X_CONNECTFLOW_TIMESTAMP"] ?? "";',
+    '$sig  = $_SERVER["HTTP_X_CONNECTFLOW_SIGNATURE"] ?? "";',
+    '$raw  = file_get_contents("php://input");          // raw body',
+    'if (abs(time() - (int)$ts) > 300) { http_response_code(400); exit; }   // replay window',
+    '',
+    '$expected = "sha256=" . hash_hmac("sha256", $ts . "." . $raw, getenv("CF_WEBHOOK_SECRET"));',
+    'if (!hash_equals($expected, $sig)) { http_response_code(401); exit; }',
+    '',
+    '$event = json_decode($raw, true);',
+    '// handle $event["event"] === "message.received" ...',
+    'http_response_code(200);') },
+];
+const instancesResp = L('[', '  {', '    "id": "6e1b488b-2efc-4b26-9ae5-9ccb87cb628a",', '    "label": "Sales",', '    "phone": "923001234567",', '    "status": "ready"', '  }', ']');
+const sendResp = L('HTTP/1.1 202 Accepted', '', '{', '  "id": "3EB0C767D0A2A1B2C3D4",', '  "status": "sent",', '  "to": "923001234567",', '  "instance": "6e1b488b-2efc-4b26-9ae5-9ccb87cb628a"', '}');
+const hookMsg = L('POST /your/endpoint', 'Content-Type: application/json', 'X-ConnectFlow-Event: message.received', 'X-ConnectFlow-Delivery: 0b9a4f2e-6c1d-4a7e-9d51-2f7f0c4b8a10', 'X-ConnectFlow-Timestamp: 1793871852', 'X-ConnectFlow-Signature: sha256=9f2c…e1', '', '{', '  "id": "0b9a4f2e-6c1d-4a7e-9d51-2f7f0c4b8a10",', '  "event": "message.received",', '  "createdAt": "2026-11-04T10:44:12Z",', '  "instance": { "id": "6e1b488b-…", "label": "Sales" },', '  "data": {', '    "from": "923001234567",', '    "text": "Yes, send details.",', '    "messageId": "3EB0A1B2C3D4E5F6"', '  }', '}');
+const hookStatus = L('{', '  "id": "5d1c…",', '  "event": "instance.status",', '  "createdAt": "2026-11-04T10:51:03Z",', '  "instance": { "id": "6e1b488b-…", "label": "Sales" },', '  "data": { "status": "disconnected", "phone": "923001234567" }', '}');
+const errBody = L('HTTP/1.1 409 Conflict', '', '{ "detail": "This number is not connected (status: qr_ready). Link it from the dashboard first." }');
+---
+<Base title="Developers" current="/developers" description="ConnectFlow API: list your numbers, send WhatsApp messages and receive replies on signed webhooks.">
+  <div class="wrap page-hero">
+    <span class="eyebrow">Developers</span>
+    <h1>A small API for a <span class="serif">sharp job.</span></h1>
+    <p class="lead">List your numbers, send messages, and receive replies. The send API is live. Webhooks are in beta. Everything below describes what exists today and marks what is coming.</p>
+    <div class="hero-cta" style="margin-top:26px"><a class="btn btn-primary" href={`${APP}/#signup`}>Get an API key <span class="arr">→</span></a><a class="btn btn-ghost" href="#quickstart">Quickstart</a></div>
+  </div>
+
+  <section style="padding-top:20px">
+    <div class="wrap docs">
+      <nav class="docs-nav" aria-label="Documentation">
+        <h5>Start</h5><a href="#quickstart">Quickstart</a><a href="#auth">Authentication</a>
+        <h5>Endpoints</h5><a href="#instances">List numbers</a><a href="#messages">Send a message</a>
+        <h5>Webhooks</h5><a href="#webhooks">Overview &amp; events</a><a href="#signature">Verify signatures</a><a href="#retries">Retries</a>
+        <h5>Reference</h5><a href="#errors">Errors</a><a href="#limits">Rate limits</a><a href="#idempotency">Idempotency</a><a href="#usecases">Use cases</a>
+      </nav>
+
+      <div>
+        <div class="doc-sec" id="quickstart">
+          <h2>Quickstart</h2>
+          <p>Five steps from nothing to a sent message. Replace <code class="i">$BASE</code> with the address of your ConnectFlow app: <code class="i">https://app.YOURDOMAIN</code> in production, or <code class="i">http://app.connectflow.localhost:8080</code> on a local install.</p>
+          <ol style="color:var(--muted);display:grid;gap:8px;padding-left:20px;margin:0 0 18px">
+            <li><a href={`${APP}/#signup`} style="color:var(--mint)">Create a workspace</a> (free trial).</li>
+            <li>In the dashboard, <b style="color:var(--text);font-weight:500">WhatsApp numbers → Add number</b>, and scan the QR until the status is <i>Connected</i>.</li>
+            <li>Open <b style="color:var(--text);font-weight:500">API &amp; usage → Create key</b>. Copy it: it is shown once.</li>
+            <li>List your numbers to get the <code class="i">instance</code> id (below).</li>
+            <li>Send a message to a WhatsApp number in international format.</li>
+          </ol>
+          <h3>1. List your numbers</h3>
+          <CodeTabs tabs={listTabs} id="q1" />
+          <CodeTabs tabs={[{ label: 'Response 200', code: instancesResp }]} id="q1r" />
+          <h3>2. Send a message</h3>
+          <CodeTabs tabs={sendTabs} id="q2" />
+          <CodeTabs tabs={[{ label: 'Response 202', code: sendResp }]} id="q2r" />
+          <div class="note-box warn">Use a number you are allowed to message, and respect opt-outs. The API follows the same warm-up, plan limits and safety rules as the dashboard, and a number that is not connected cannot send.</div>
+        </div>
+
+        <div class="doc-sec" id="auth">
+          <h2>Authentication</h2>
+          <p>Every request carries your key as a bearer token. Keys look like <code class="i">cf_live_…</code>, are created in <b style="color:var(--text);font-weight:500">API &amp; usage</b>, and can be limited to <b style="color:var(--text);font-weight:500">all numbers</b> or <b style="color:var(--text);font-weight:500">one number</b>.</p>
+          <CodeTabs tabs={[{ label: 'Header', code: 'Authorization: Bearer cf_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' }]} id="a1" />
+          <ul>
+            <li>We store only a hash of the key. If you lose it, create a new one and revoke the old.</li>
+            <li>Revoking a key takes effect immediately (<code class="i">401</code> on the next call).</li>
+            <li>Keep keys on your server. Never ship them in a browser or mobile app.</li>
+          </ul>
+        </div>
+
+        <div class="doc-sec" id="instances">
+          <h2>List numbers <span class="tag">Live</span></h2>
+          <div class="ep"><b class="get">GET</b>/v1/instances</div>
+          <p>Returns the WhatsApp numbers this key can use. A key scoped to one number returns only that number.</p>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+            <tr><td><code>id</code></td><td>string</td><td>Use this as <code>instance</code> when sending.</td></tr>
+            <tr><td><code>label</code></td><td>string</td><td>The name you gave the number.</td></tr>
+            <tr><td><code>phone</code></td><td>string</td><td>The linked number, digits only (empty until linked).</td></tr>
+            <tr><td><code>status</code></td><td>string</td><td><code>ready</code> means connected and able to send. Others include <code>qr_ready</code>, <code>initializing</code>, <code>disconnected</code>.</td></tr>
+          </tbody></table></div>
+        </div>
+
+        <div class="doc-sec" id="messages">
+          <h2>Send a message <span class="tag">Live</span></h2>
+          <div class="ep"><b>POST</b>/v1/messages</div>
+          <p>Sends a text message from one of your numbers. The number is checked on WhatsApp first; if it is not registered, nothing is sent and nothing is counted.</p>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Body field</th><th>Type</th><th>Description</th></tr></thead><tbody>
+            <tr><td><code>instance</code></td><td>string</td><td>Required. The number to send from (<code>id</code> from <code>/v1/instances</code>).</td></tr>
+            <tr><td><code>to</code></td><td>string</td><td>Required. International format, digits only (spaces, <code>+</code> and dashes are stripped). 10–15 digits, no leading zero.</td></tr>
+            <tr><td><code>text</code></td><td>string</td><td>Required. 1–4096 characters.</td></tr>
+          </tbody></table></div>
+          <p>Success returns <code class="i">202</code> with <code class="i">&#123; id, status: "sent", to, instance &#125;</code>. A successful call counts toward your plan’s daily message limit; failed or rejected sends are refunded.</p>
+        </div>
+
+        <div class="doc-sec" id="webhooks">
+          <h2>Webhooks <span class="tag warn">Beta</span></h2>
+          <p>Webhooks push events to your server instead of you polling. Add an endpoint in the dashboard under <b style="color:var(--text);font-weight:500">Webhooks</b>; you receive a signing secret shown once. Use <b style="color:var(--text);font-weight:500">Send test event</b> to check your endpoint. This feature is being finished, so details may change before general availability.</p>
+          <h3>Events</h3>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Event</th><th>When</th><th><code>data</code></th></tr></thead><tbody>
+            <tr><td><code>message.received</code></td><td>A contact replies to one of your numbers</td><td><code>from</code>, <code>text</code>, <code>messageId</code></td></tr>
+            <tr><td><code>instance.status</code></td><td>A number connects, disconnects or needs a new QR</td><td><code>status</code>, <code>phone</code></td></tr>
+          </tbody></table></div>
+          <h3>Delivery</h3>
+          <p>We send an HTTPS <code class="i">POST</code> with a JSON body and these headers:</p>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Header</th><th>Meaning</th></tr></thead><tbody>
+            <tr><td><code>X-ConnectFlow-Event</code></td><td>Event name, e.g. <code>message.received</code></td></tr>
+            <tr><td><code>X-ConnectFlow-Delivery</code></td><td>Unique id (UUID) of this delivery; the same id is reused on retries, so you can de-duplicate</td></tr>
+            <tr><td><code>X-ConnectFlow-Timestamp</code></td><td>Unix time in seconds when the delivery was signed</td></tr>
+            <tr><td><code>X-ConnectFlow-Signature</code></td><td><code>sha256=&lt;hex&gt;</code>, see below</td></tr>
+          </tbody></table></div>
+          <CodeTabs tabs={[{ label: 'message.received', code: hookMsg }, { label: 'instance.status', code: hookStatus }]} id="w1" />
+        </div>
+
+        <div class="doc-sec" id="signature">
+          <h2>Verify signatures</h2>
+          <p>Compute <code class="i">HMAC_SHA256(webhook_secret, timestamp + "." + rawBody)</code>, hex-encode it, prefix with <code class="i">sha256=</code>, and compare with the header using a constant-time comparison. Reject deliveries whose timestamp is more than five minutes old.</p>
+          <CodeTabs tabs={verifyTabs} id="v1" />
+          <div class="note-box">Always verify the raw request body. Parsing and re-serialising JSON can change whitespace or key order and make the signature fail.</div>
+        </div>
+
+        <div class="doc-sec" id="retries">
+          <h2>Retries <span class="tag warn">Beta</span></h2>
+          <p>Respond with any <code class="i">2xx</code> within 10 seconds. Anything else (a non-2xx status, a timeout or a connection error) is retried with exponential backoff, up to 6 times, roughly after 30 seconds, 2 minutes, 10 minutes, 1 hour and 6 hours. After the last attempt the delivery is marked failed. Every attempt, with its response code, is visible in the dashboard. Because a delivery can arrive more than once, make your handler idempotent using <code class="i">X-ConnectFlow-Delivery</code>.</p>
+        </div>
+
+        <div class="doc-sec" id="errors">
+          <h2>Errors</h2>
+          <p>Errors return JSON <code class="i">&#123; "detail": "…" &#125;</code> and a standard status code.</p>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Status</th><th>Meaning</th><th>What to do</th></tr></thead><tbody>
+            <tr><td><code>401</code></td><td>Missing, invalid or revoked key</td><td>Check the <code>Authorization</code> header; create a new key if needed</td></tr>
+            <tr><td><code>403</code></td><td>The key is scoped to a different number, or the account is suspended</td><td>Use the right key or contact support</td></tr>
+            <tr><td><code>404</code></td><td>Instance not found in your workspace</td><td>List numbers and use a returned <code>id</code></td></tr>
+            <tr><td><code>409</code></td><td>The number is not connected</td><td>Re-link it from the dashboard, then retry</td></tr>
+            <tr><td><code>422</code></td><td>Invalid <code>to</code> or <code>text</code>, or the number is not on WhatsApp</td><td>Fix the input; this is not retryable</td></tr>
+            <tr><td><code>403</code></td><td>The key has an IP allow-list and your server's IP is not on it</td><td>Add the server's public IP to the key in API &amp; usage</td></tr>
+            <tr><td><code>429</code></td><td>Daily plan limit reached, or too many requests</td><td>Read <code>detail</code>: daily limits reset at 00:00 UTC; rate limits clear within a minute (honour <code>Retry-After</code>)</td></tr>
+            <tr><td><code>502</code></td><td>The WhatsApp gateway failed or rejected the send</td><td>Retry later with backoff. The send was not counted</td></tr>
+          </tbody></table></div>
+          <CodeTabs tabs={[{ label: 'Example 409', code: errBody }]} id="e1" />
+        </div>
+
+        <div class="doc-sec" id="limits">
+          <h2>Rate limits</h2>
+          <p>Each key may make <b style="color:var(--text);font-weight:500">120 requests per minute</b>. Above that you receive <code class="i">429</code> until the minute rolls over. Separately, your plan sets how many messages you may send per day (UTC day): 50 on Trial, 500 on Starter, 3,000 on Growth. Messages are also paced by the safety engine, so a burst of sends from a new number may be slowed or rejected by design.</p>
+          <p>To protect you from leaked keys, a key that suddenly appears from many different IP addresses or sends a sharp spike of traffic is <b style="color:var(--text);font-weight:500">suspended automatically</b> (401 saying it is suspended) and the workspace owner is emailed; they can review and unsuspend it in the dashboard. You can also restrict a key to your server IPs (IPv4, IPv6 or CIDR) and rotate it in one click. Repeated wrong keys from one address are blocked for a few minutes.</p>
+        </div>
+
+        <div class="doc-sec" id="idempotency">
+          <h2>Idempotency</h2>
+          <p>There is no idempotency key yet: if a <code class="i">POST /v1/messages</code> call times out and you repeat it, the message may be sent twice. Until idempotency keys ship, de-duplicate on your side (for example, record your own message id before calling) and treat <code class="i">202</code> as final.</p>
+        </div>
+
+        <div class="doc-sec" id="usecases">
+          <h2>Use cases</h2>
+          <div class="uc-mini">
+            <div class="card"><h4>CRM trigger</h4><p>When a deal moves to “Proposal sent”, your CRM calls the send API with a short, personal follow-up from the owner’s number.</p></div>
+            <div class="card"><h4>Appointment reminders</h4><p>A nightly job lists tomorrow’s bookings and sends each person a reminder, so fewer people forget.</p></div>
+            <div class="card"><h4>Reply routing</h4><p>Receive <code class="i">message.received</code> on a webhook and post it to your team chat or ticketing tool, so no reply is missed.</p></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</Base>

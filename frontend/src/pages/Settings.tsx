@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { api, Me } from '../api';
+import { DataCard, SecurityCard } from '../components/AccountSecurity';
 import { applyTheme, DEFAULT_BRAND, fileToDataUrl, PRESETS, Theme, THEMES } from '../theme';
 
 const same = (a: Theme, b: Theme) => a.accent === b.accent && a.sidebar === b.sidebar && a.page === b.page;
@@ -79,6 +80,9 @@ export function Settings({ me, onChange }: { me: Me; onChange: () => void }) {
           {t.brand.logo && <button className="danger" onClick={() => run(() => api('/api/branding/logo', 'DELETE'), 'Logo removed.')}>Remove</button>}
         </div>
       </div>
+
+      <SecurityCard onChange={onChange} />
+      {me.role === 'owner' && <DataCard />}
     </section>
   );
 }

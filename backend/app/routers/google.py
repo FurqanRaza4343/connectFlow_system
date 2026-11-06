@@ -4,6 +4,7 @@ Setup (Google Cloud Console -> APIs & Services -> Credentials -> OAuth client ID
   Authorized redirect URI:  <PUBLIC_APP_URL>/api/auth/google/callback
 Then put GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET in infra/.env.
 """
+from typing import Any
 import secrets
 from datetime import datetime, timezone
 from urllib.parse import urlencode
@@ -18,7 +19,8 @@ from ..config import settings
 from ..db import get_db
 from ..models import AuditLog, Membership, Tenant, User
 from ..security import hash_password
-from .auth import _client_ip, _set_cookie, _throttle
+from .auth import _client_ip, _throttle
+from .twofactor import session_for_google
 
 router = APIRouter(prefix="/api/auth/google", tags=["auth"])
 STATE_COOKIE = "cf_oauth"
@@ -41,7 +43,7 @@ def _back(error: str | None = None, mode: str = "login") -> RedirectResponse:
 
 
 @router.get("/start")
-def start(request: Request, mode: str = "login"):
+def start(request: Request, mode: str = "login") -> Any:
     if not (settings.google_client_id and settings.google_client_secret):
         return _back("Google sign-in is not configured yet.", mode)
     _throttle(f"gstart:{_client_ip(request)}", 30, 600)
@@ -63,7 +65,7 @@ def _exp(seconds: int) -> int:
 
 
 @router.get("/callback")
-async def callback(request: Request, code: str = "", state: str = "", error: str = "", db: Session = Depends(get_db)):
+async def callback(request: Request, code: str = "", state: str = "", error: str = "", db: Session = Depends(get_db)) -> Any:
     try:
         saved = jwt.decode(request.cookies.get(STATE_COOKIE, ""), settings.jwt_secret, algorithms=["HS256"])
     except jwt.PyJWTError:
@@ -115,5 +117,8 @@ async def callback(request: Request, code: str = "", state: str = "", error: str
     db.commit()
 
     resp = _back()
-    _set_cookie(resp, user.id)
+    step = session_for_google(db, user, resp)  # "" = signed in; "mfa:<token>" = the user must still enter a 2FA code; "enrol" = admin must set up 2FA
+    if step.startswith("mfa:"):
+        resp = RedirectResponse(f"{settings.public_app_url.rstrip('/')}/?" + urlencode({"mfa_token": step[4:]}), status_code=302)
+        resp.delete_cookie(STATE_COOKIE, path="/api/auth/google")
     return resp

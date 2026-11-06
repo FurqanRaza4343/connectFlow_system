@@ -1,4 +1,5 @@
 """Structured JSON logging, request ids and optional Sentry. Never logs secrets, keys, cookies, bodies or query strings."""
+from typing import Any
 import contextvars
 import json
 import logging
@@ -8,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 
 from .config_ops import ops
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 request_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="")
 tenant_id_var: contextvars.ContextVar[str] = contextvars.ContextVar("tenant_id", default="")
@@ -43,7 +45,7 @@ def setup_logging() -> None:
         logging.getLogger(noisy).setLevel(logging.WARNING)  # httpx logs full URLs; uvicorn.access is replaced by the middleware
 
 
-def _scrub(event, _hint):
+def _scrub(event: Any, _hint: Any) -> Any:
     """Sentry before_send: drop everything that could carry a secret or personal data."""
     req = event.get("request") or {}
     for k in ("headers", "cookies", "data", "query_string", "env"):
@@ -68,13 +70,14 @@ def init_sentry() -> bool:
 class RequestLogMiddleware:
     """Pure-ASGI middleware: request id, latency, status. No bodies, headers or query strings are ever read."""
 
-    def __init__(self, app):
+    def __init__(self, app: ASGIApp) -> None:
         self.app = app
         self.log = logging.getLogger("http")
 
-    async def __call__(self, scope, receive, send):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
-            return await self.app(scope, receive, send)
+            await self.app(scope, receive, send)
+            return
         rid = ""
         for k, v in scope.get("headers", []):
             if k == b"x-request-id":
@@ -87,7 +90,7 @@ class RequestLogMiddleware:
         t0 = time.perf_counter()
         status = {"v": 500}
 
-        async def send_wrap(message):
+        async def send_wrap(message: Message) -> None:
             if message["type"] == "http.response.start":
                 status["v"] = message["status"]
                 message.setdefault("headers", []).append((b"x-request-id", rid.encode()))

@@ -15,12 +15,16 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import redis
+from collections.abc import Awaitable, Callable
 from sqlalchemy import func
+from sqlalchemy.orm import Session
+from typing import Any
 
 from . import wa_client as wa
 from .config_ops import ops
 from .db import SessionLocal
 from .models import AuditLog, Instance, Tenant, UsageEvent
+from .sqlutil import rows_to_dict
 
 log = logging.getLogger("reaper")
 UNSCANNED = {"created", "initializing", "qr_ready", "authenticating"}
@@ -74,23 +78,23 @@ def split_reconcile(db_rows: list[Row], gw_sessions: list[dict], now: datetime, 
 
 
 # ------------------------------------------------------------------ I/O
-def _redis() -> redis.Redis:
+def _redis() -> Any:
     return redis.Redis.from_url(ops.redis_url, decode_responses=True)
 
 
-def _load_rows(db) -> list[Row]:
-    last = dict(db.query(UsageEvent.instance_id, func.max(UsageEvent.at)).filter(UsageEvent.kind == "message").group_by(UsageEvent.instance_id).all())
+def _load_rows(db: Session) -> list[Row]:
+    last = rows_to_dict(db.query(UsageEvent.instance_id, func.max(UsageEvent.at)).filter(UsageEvent.kind == "message").group_by(UsageEvent.instance_id).all())
     plan = {t.id: t.plan_id for t in db.query(Tenant).all()}
     return [Row(i.id, i.openwa_name, i.status, i.phone or "", i.created_at, plan.get(i.tenant_id, ""), last.get(i.id)) for i in db.query(Instance).all()]
 
 
-def _audit(db, inst: Instance, action: str, detail: str) -> None:
+def _audit(db: Session, inst: Instance, action: str, detail: str) -> None:
     db.add(AuditLog(tenant_id=inst.tenant_id, user_id=None, action=action, detail=detail[:300]))
 
 
 async def reap_once(now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
-    out = {"unscanned": 0, "idle_trial": 0, "dry_run": ops.reaper_dry_run}
+    out: dict[str, Any] = {"unscanned": 0, "idle_trial": 0, "dry_run": ops.reaper_dry_run}
     with SessionLocal() as db:
         rows = _load_rows(db)
         victims = select_unscanned(rows, now, ops.reap_unscanned_minutes)
@@ -135,7 +139,7 @@ async def reap_once(now: datetime | None = None) -> dict:
 
 async def reconcile_once(now: datetime | None = None) -> dict:
     now = now or datetime.now(timezone.utc)
-    out = {"orphans_deleted": 0, "orphans_new": 0, "rows_disconnected": 0, "rows_removed": 0, "skipped": ""}
+    out: dict[str, Any] = {"orphans_deleted": 0, "orphans_new": 0, "rows_disconnected": 0, "rows_removed": 0, "skipped": ""}
     try:
         sessions = await wa.list_sessions()
     except wa.WAError as e:
@@ -180,7 +184,7 @@ async def reconcile_once(now: datetime | None = None) -> dict:
     return out
 
 
-async def _guarded(name: str, ttl: int, fn) -> None:
+async def _guarded(name: str, ttl: int, fn: Callable[[], Awaitable[Any]]) -> None:
     """Run fn() only if we obtain the Redis lock (so two workers never act at once)."""
     r = _redis()
     if not r.set(f"{LOCK_KEY}:{name}", "1", nx=True, ex=ttl):

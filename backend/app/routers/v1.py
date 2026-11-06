@@ -1,11 +1,14 @@
 """Public API (Bearer cf_live_...). Server-to-server: no cookies, no CSRF, scoped keys, same limits as the dashboard.
 Every request is checked by app/telemetry.py (per-IP limit before auth, suspension, IP allow-list, usage telemetry, leak rules)."""
 from datetime import datetime, timezone
+from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from .. import idempotency
 from ..db import get_db
 from ..deps import rds
 from ..messaging import send_text
@@ -17,7 +20,7 @@ router = APIRouter(prefix="/v1", tags=["public api"])
 
 
 class KeyCtx:
-    def __init__(self, key: ApiKey, tenant: Tenant):
+    def __init__(self, key: ApiKey, tenant: Tenant) -> None:
         self.key, self.tenant = key, tenant
 
 
@@ -67,7 +70,7 @@ class MessageIn(BaseModel):
 
 
 @router.get("/instances")
-def instances(c: KeyCtx = Depends(api_key_ctx), db: Session = Depends(get_db)):
+def instances(c: KeyCtx = Depends(api_key_ctx), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     q = db.query(Instance).filter(Instance.tenant_id == c.tenant.id)
     if c.key.instance_id:
         q = q.filter(Instance.id == c.key.instance_id)
@@ -75,11 +78,30 @@ def instances(c: KeyCtx = Depends(api_key_ctx), db: Session = Depends(get_db)):
 
 
 @router.post("/messages", status_code=202)
-async def messages(body: MessageIn, c: KeyCtx = Depends(api_key_ctx), db: Session = Depends(get_db)):
-    if c.key.instance_id and c.key.instance_id != body.instance:
-        raise HTTPException(403, "This key is scoped to a different number")
-    inst = db.query(Instance).filter(Instance.id == body.instance, Instance.tenant_id == c.tenant.id).first()
-    if not inst:
-        raise HTTPException(404, "instance not found")
-    check_active_hours(db, c.key)
-    return await send_text(db, c.tenant, inst, body.to, body.text, api_key_id=c.key.id)
+async def messages(body: MessageIn, response: Response, c: KeyCtx = Depends(api_key_ctx), db: Session = Depends(get_db),
+                   idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")) -> Any:
+    """Send a text message. Optional `Idempotency-Key` header (<= 64 chars): a retry with the same key and body returns the first result
+    (header `Idempotent-Replayed: true`) without sending again."""
+    idem = idempotency.validate_key(idempotency_key)
+    state = idempotency.Begin(tracked=False)
+    h = idempotency.body_hash(body.model_dump())
+    if idem:
+        state = idempotency.begin(rds, c.tenant.id, idem, h)
+        if state.replay:
+            return JSONResponse(state.body or {}, status_code=state.status, headers={"Idempotent-Replayed": "true", "Idempotency-Key": idem})
+    try:
+        if c.key.instance_id and c.key.instance_id != body.instance:
+            raise HTTPException(403, "This key is scoped to a different number")
+        inst = db.query(Instance).filter(Instance.id == body.instance, Instance.tenant_id == c.tenant.id).first()
+        if not inst:
+            raise HTTPException(404, "instance not found")
+        check_active_hours(db, c.key)
+        result = await send_text(db, c.tenant, inst, body.to, body.text, api_key_id=c.key.id)
+    except BaseException:
+        if idem and state.tracked:
+            idempotency.abort(rds, c.tenant.id, idem)  # a failed attempt must not block the client's retry
+        raise
+    if idem and state.tracked:
+        idempotency.finish(rds, c.tenant.id, idem, h, 202, result)
+        response.headers["Idempotency-Key"] = idem
+    return result

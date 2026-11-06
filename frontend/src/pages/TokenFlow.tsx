@@ -31,7 +31,7 @@ export function TokenFlow({ flow, me, onDone }: { flow: Flow; me: Me | null; onD
     e.preventDefault(); setBusy(true); setMsg('');
     try {
       if (flow.kind === 'reset') { await api('/api/auth/reset', 'POST', { token: flow.token, password: pw }); setState('ok'); }
-      else { const m = await api<Me>('/api/team/invites/accept', 'POST', { token: flow.token, name, password: pw }); onDone(m); }
+      else { const m = await api<any>('/api/team/invites/accept', 'POST', { token: flow.token, name, password: pw }); if (m.mfaRequired) { setMsg('You joined the workspace. Sign in with your password and two-factor code.'); setTimeout(() => onDone(), 2200); } else onDone(m as Me); }
     } catch (x: any) { setMsg(x.message); } finally { setBusy(false); }
   }
 

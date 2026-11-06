@@ -21,7 +21,7 @@ class AIError(Exception):
 class AILimitError(AIError):
     """The workspace's daily AI allowance is used up (429), or the platform circuit breaker is open (503)."""
 
-    def __init__(self, message: str, status: int = 429):
+    def __init__(self, message: str, status: int = 429) -> None:
         super().__init__(message)
         self.status = status
 

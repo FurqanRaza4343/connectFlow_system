@@ -6,6 +6,8 @@ import re
 from datetime import timedelta
 from html import escape
 
+from sqlalchemy.orm import Session
+
 from .deps import rds
 from .mailer import layout, send_email
 from .models import Draft, Membership, Message, OutreachProfile, Tenant, User
@@ -41,7 +43,7 @@ def preview(text: str, n: int = 140) -> str:
     return t if len(t) <= n else t[: n - 1] + "…"
 
 
-def recipients(db, tenant_id: str, p: OutreachProfile) -> list[str]:
+def recipients(db: Session, tenant_id: str, p: OutreachProfile) -> list[str]:
     rows = db.query(User.email).join(Membership, Membership.user_id == User.id).filter(Membership.tenant_id == tenant_id, Membership.role.in_(("owner", "admin"))).all()
     out = [e.lower() for (e,) in rows]
     for e in parse_extras(p.notify_extra_emails)[:MAX_EXTRA]:
@@ -56,7 +58,7 @@ def _body(lines: list[str]) -> tuple[str, str]:
     return text, html
 
 
-async def send_alert(db, tenant_id: str, type_: str, subject: str, lines: list[str], throttle: bool = True) -> int:
+async def send_alert(db: Session, tenant_id: str, type_: str, subject: str, lines: list[str], throttle: bool = True) -> int:
     """Returns the number of emails sent (0 when disabled / throttled)."""
     try:
         p = db.get(OutreachProfile, tenant_id)
@@ -77,7 +79,7 @@ async def send_alert(db, tenant_id: str, type_: str, subject: str, lines: list[s
         return 0
 
 
-async def digest_tick(db) -> int:
+async def digest_tick(db: Session) -> int:
     """Daily 08:00 (workspace time) summary of yesterday. Idempotent per local date via Redis."""
     from . import outreach as og  # local import: outreach imports this module
 

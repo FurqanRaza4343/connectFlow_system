@@ -36,7 +36,7 @@ export const safety = [
 ];
 
 export const plans = [
-  { id: 'trial', name: 'Trial', usd: '0', pkr: '0', blurb: 'Try the full flow on one number.', cta: 'Start free', items: ['1 WhatsApp number', '50 messages / day', 'AI research & drafting', 'Approval queue', 'Email support'] },
+  { id: 'trial', name: 'Trial', usd: '0', pkr: '0', blurb: 'Try the full flow on one number.', cta: 'Start free', items: ['1 WhatsApp number', '50 messages / day', '20 AI drafts / day', 'Approval queue', 'Email support'] },
   { id: 'starter', name: 'Starter', usd: '19', pkr: '4,999', blurb: 'For founders and small sales teams.', cta: 'Start with Starter', pop: true, items: ['3 WhatsApp numbers', '500 messages / day', 'Lead import & enrichment', 'Follow-up sequences', 'Reply inbox & handoff', 'API & webhooks (beta)'] },
   { id: 'growth', name: 'Growth', usd: '59', pkr: '14,999', blurb: 'For agencies and growing teams.', cta: 'Start with Growth', items: ['10 WhatsApp numbers', '3,000 messages / day', 'Team members & roles', 'Priority support', 'Custom company knowledge', 'Early access to new features'] },
 ];

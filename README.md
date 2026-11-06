@@ -96,13 +96,15 @@ Open (local defaults, port 8080):
 | Website | http://connectflow.localhost:8080 |
 | Customer app | http://app.connectflow.localhost:8080 |
 | Platform admin | http://admin.connectflow.localhost:8080 (login = `ADMIN_EMAIL` / `ADMIN_PASSWORD` from `.env`) |
-| Dev mail inbox (Mailpit) | http://localhost:8025 |
+| Dev mail inbox (Mailpit, optional) | http://127.0.0.1:8025, only with `make up-dev` (see below) |
 
 Use the `*.localhost` names, not `localhost:8080`. A shared `localhost` can collect so many cookies that Caddy answers **400 Request Header Or Cookie Too Large**; if you ever see it, clear cookies for `localhost`.
 
+**Email:** with `RESEND_API_KEY` set, every email goes through Resend and no mail container is needed. Without a key, start the dev-only Mailpit inbox too: `docker compose --profile dev up -d --build` (or `make up-dev`) and read the mail at http://127.0.0.1:8025.
+
 Database migrations run automatically when the API starts. The first platform admin is created from `ADMIN_EMAIL` / `ADMIN_PASSWORD` if it does not exist.
 
-**First run walk-through:** sign up on the app host -> verify the email in Mailpit -> *WhatsApp numbers* -> *Add number* -> scan the QR with the phone -> import leads -> *Outreach > Setup* -> approve drafts. Outreach starts in **dry-run** with **approval required**, so nothing is sent until you turn that off.
+**First run walk-through:** sign up on the app host -> verify the email (Resend inbox, or Mailpit with `make up-dev` when `RESEND_API_KEY` is empty) -> *WhatsApp numbers* -> *Add number* -> scan the QR with the phone -> import leads -> *Outreach > Setup* -> approve drafts. Outreach starts in **dry-run** with **approval required**, so nothing is sent until you turn that off.
 
 ## Docker commands cheat sheet
 
@@ -156,7 +158,8 @@ All configuration is environment variables in `infra/.env` (template: [`infra/.e
 |---|---|
 | Core secrets | `POSTGRES_PASSWORD`, `JWT_SECRET`, `OPENWA_WEBHOOK_SECRET`, `OPENWA_DB_PASSWORD`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` |
 | Hosts | `SCHEME`, `SITE_HOST`, `APP_HOST`, `ADMIN_HOST`, `APP_PORT`, `PUBLIC_APP_URL`, `COOKIE_SECURE` |
-| Email | `RESEND_API_KEY` (production) or `SMTP_*` (Mailpit locally), `SMTP_FROM` |
+| Email | `RESEND_API_KEY` (production) or `SMTP_*` (Mailpit locally, dev profile), `SMTP_FROM` |
+| Billing | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, optional `STRIPE_PRICE_STARTER` / `STRIPE_PRICE_GROWTH` (see [docs/BILLING.md](docs/BILLING.md)) |
 | AI | `AI_API_KEY`, `AI_BASE_URL`, `AI_MODEL` (any OpenAI-compatible API, DeepSeek by default), `SEARXNG_URL` |
 | Google sign-in | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` (leave empty to hide the button) |
 | Gateway limits | `GATEWAY_MAX_SESSIONS`, `GATEWAY_MEM_LIMIT`, `PLATFORM_MAX_INSTANCES` |

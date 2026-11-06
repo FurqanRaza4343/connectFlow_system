@@ -8,7 +8,8 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 const GREEN = 0x2ed47a;
 
 // Logical iPhone 16 screen: 393 x 852 pt, drawn at 2x.
-const LW = 393, LH = 852, S = 2;
+const LW = 393, LH = 852;
+const S = (window.devicePixelRatio || 1) >= 2.5 ? 3 : 2; // texture density follows the display (3x phones get a 3x texture)
 const W = LW * S, H = LH * S;
 
 type Msg = { from: 'in' | 'out'; text: string; time: string };
@@ -80,23 +81,23 @@ function drawScreen(c: CanvasRenderingContext2D, shown: number, typing: boolean)
   const g = c.createLinearGradient(40, 56, 80, 96); g.addColorStop(0, '#4adf92'); g.addColorStop(1, '#1a9e5b');
   c.fillStyle = g; c.beginPath(); c.arc(62, 82, 19, 0, 7); c.fill();
   c.fillStyle = '#04120a'; c.font = `700 18px ${FONT}`; c.fillText('S', 62, 88.5);
-  c.textAlign = 'left'; c.fillStyle = '#e9edef'; c.font = `600 17px ${FONT}`; c.fillText('Sara Khan', 90, 79);
-  c.fillStyle = '#8696a0'; c.font = `400 12.5px ${FONT}`; c.fillText(typing ? 'typing…' : 'online', 90, 96);
+  c.textAlign = 'left'; c.fillStyle = '#e9edef'; c.font = `600 21px ${FONT}`; c.fillText('Sara Khan', 90, 78);
+  c.fillStyle = '#8696a0'; c.font = `400 15px ${FONT}`; c.fillText(typing ? 'typing…' : 'online', 90, 99);
   icon(c, ICON.video, 290, 69, 26, '#e9edef');
   icon(c, ICON.call, 328, 69, 24, '#e9edef');
 
   // date chip
-  c.font = `500 11.5px ${FONT}`; const dw = c.measureText('TODAY').width + 22;
-  c.fillStyle = '#1f2c34'; rrect(c, (LW - dw) / 2, 128, dw, 24, 8); c.fill();
-  c.fillStyle = '#8696a0'; c.textAlign = 'center'; c.fillText('TODAY', LW / 2, 144); c.textAlign = 'left';
+  c.font = `500 14px ${FONT}`; const dw = c.measureText('TODAY').width + 22;
+  c.fillStyle = '#1f2c34'; rrect(c, (LW - dw) / 2, 126, dw, 28, 9); c.fill();
+  c.fillStyle = '#8696a0'; c.textAlign = 'center'; c.fillText('TODAY', LW / 2, 145); c.textAlign = 'left';
 
   // messages (bottom-anchored above the input bar)
-  c.font = `400 15.5px ${FONT}`;
-  const MAXW = 252;
+  c.font = `400 19px ${FONT}`;
+  const MAXW = 284;
   const items = CHAT.slice(0, shown).map((m) => {
     const lines = wrapText(c, m.text, MAXW);
     const tw = Math.max(...lines.map((l) => c.measureText(l).width));
-    return { ...m, lines, w: Math.min(MAXW + 26, Math.max(tw + 26, 84)), h: lines.length * 20 + 14 + 18 };
+    return { ...m, lines, w: Math.min(MAXW + 26, Math.max(tw + 26, 84)), h: lines.length * 25 + 16 + 22 };
   });
   let y = 752;
   if (typing) {
@@ -109,17 +110,19 @@ function drawScreen(c: CanvasRenderingContext2D, shown: number, typing: boolean)
     const out = m.from === 'out';
     const x = out ? LW - m.w - 12 : 12;
     y -= m.h;
+    c.save(); c.shadowColor = 'rgba(0,0,0,0.35)'; c.shadowBlur = 6; c.shadowOffsetY = 2;
     c.fillStyle = out ? '#005c4b' : '#1f2c34';
-    rrect(c, x, y, m.w, m.h, 12); c.fill();
+    rrect(c, x, y, m.w, m.h, 14); c.fill(); c.restore();
+    c.fillStyle = out ? '#005c4b' : '#1f2c34';
     c.beginPath(); // tail
     if (out) { c.moveTo(x + m.w - 12, y); c.lineTo(x + m.w + 5, y); c.lineTo(x + m.w - 4, y + 10); } else { c.moveTo(x + 12, y); c.lineTo(x - 5, y); c.lineTo(x + 4, y + 10); }
     c.closePath(); c.fill();
-    c.fillStyle = '#e9edef'; c.font = `400 15.5px ${FONT}`;
-    m.lines.forEach((l, k) => c.fillText(l, x + 12, y + 22 + k * 20));
-    c.font = `400 11px ${FONT}`; c.fillStyle = out ? 'rgba(233,237,239,0.65)' : '#8696a0'; c.textAlign = 'right';
+    c.fillStyle = '#e9edef'; c.font = `400 19px ${FONT}`;
+    m.lines.forEach((l, k) => c.fillText(l, x + 13, y + 27 + k * 25));
+    c.font = `400 13px ${FONT}`; c.fillStyle = out ? 'rgba(233,237,239,0.65)' : '#8696a0'; c.textAlign = 'right';
     c.fillText(m.time, x + m.w - (out ? 30 : 11), y + m.h - 8); c.textAlign = 'left';
     if (out) icon(c, ICON.ticks, x + m.w - 28, y + m.h - 20, 15, '#53bdeb');
-    c.font = `400 15.5px ${FONT}`;
+    c.font = `400 19px ${FONT}`;
     y -= 6;
     if (y < 164) break;
   }
@@ -128,7 +131,7 @@ function drawScreen(c: CanvasRenderingContext2D, shown: number, typing: boolean)
   c.fillStyle = '#111b21'; c.fillRect(0, 772, LW, 80);
   icon(c, ICON.plus, 10, 784, 30, '#aebac1');
   c.fillStyle = '#1f2c34'; rrect(c, 48, 783, 252, 38, 19); c.fill();
-  c.fillStyle = '#8696a0'; c.font = `400 16px ${FONT}`; c.fillText('Message', 64, 807);
+  c.fillStyle = '#8696a0'; c.font = `400 16px ${FONT}`; c.fillText('Message', 64, 808);
   icon(c, ICON.sticker, 268, 790, 24, '#8696a0');
   icon(c, ICON.camera, 306, 786, 28, '#aebac1');
   icon(c, ICON.mic, 346, 786, 28, '#aebac1');
@@ -167,7 +170,7 @@ export function initHero(stage: HTMLElement) {
   let renderer: THREE.WebGLRenderer;
   try { renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' }); } catch { return; }
   const small = matchMedia('(max-width: 900px)').matches;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, small ? 1.5 : 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2.5));
   renderer.setClearColor(0x000000, 0);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
@@ -208,7 +211,7 @@ export function initHero(stage: HTMLElement) {
   // screen
   const cc = document.createElement('canvas'); cc.width = W; cc.height = H;
   const cctx = cc.getContext('2d')!;
-  const tex = new THREE.CanvasTexture(cc); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+  const tex = new THREE.CanvasTexture(cc); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = renderer.capabilities.getMaxAnisotropy(); tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter;
   const SW = 1.43, SH = SW * (LH / LW);
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(SW, SH), new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false }));
   screen.position.z = BD / 2 + 0.0014; phone.add(screen);
@@ -218,14 +221,22 @@ export function initHero(stage: HTMLElement) {
   const glare = new THREE.Mesh(new THREE.PlaneGeometry(SW, SH), new THREE.MeshBasicMaterial({ map: glareTex, transparent: true, opacity: 0.32, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
   glare.position.z = BD / 2 + 0.0022; phone.add(glare);
 
-  // buttons: left = Action + volume up/down, right = power + Camera Control
-  const btn = (y: number, h: number, side: -1 | 1, mat: THREE.Material = frameMat) => {
-    const m = new THREE.Mesh(new RoundedBoxGeometry(0.03, h, 0.05, 2, 0.012), mat);
-    m.position.set(side * (BW / 2 + 0.003), y, 0); phone.add(m);
+  // protective case: a thick silicone-style cover with a raised lip around the glass and an opening for the screen
+  const CASE_PAD = 0.07, LIP = 0.04;
+  const caseShape = roundedRectShape(BW + 2 * CASE_PAD, BH + 2 * CASE_PAD, CORNER + CASE_PAD);
+  caseShape.holes.push(new THREE.Path(roundedRectShape(BW - 0.07, BH - 0.07, CORNER - 0.035).getPoints(40)));
+  const caseGeo = new THREE.ExtrudeGeometry(caseShape, { depth: BD + 0.02, bevelEnabled: true, bevelThickness: LIP, bevelSize: 0.03, bevelSegments: 5, curveSegments: 40 });
+  caseGeo.translate(0, 0, -(BD + 0.02) / 2);
+  const caseMat = new THREE.MeshPhysicalMaterial({ color: 0x174a37, metalness: 0.05, roughness: 0.52, clearcoat: 0.3, clearcoatRoughness: 0.6, sheen: 0.35, sheenColor: new THREE.Color(0x4fd18c), envMapIntensity: 0.55 });
+  phone.add(new THREE.Mesh(caseGeo, caseMat));
+  // case buttons: raised, with the power key in the brand green so the case has a clear focal button
+  const keyMat = new THREE.MeshPhysicalMaterial({ color: GREEN, metalness: 0.25, roughness: 0.32, clearcoat: 0.6, emissive: GREEN, emissiveIntensity: 0.18 });
+  const sideKey = (y: number, h: number, side: -1 | 1, mat: THREE.Material) => {
+    const m = new THREE.Mesh(new RoundedBoxGeometry(0.07, h, 0.095, 3, 0.03), mat);
+    m.position.set(side * (BW / 2 + CASE_PAD + 0.045), y, 0); phone.add(m);
   };
-  btn(1.12, 0.09, -1); btn(0.86, 0.17, -1); btn(0.6, 0.17, -1);
-  btn(0.84, 0.27, 1);
-  btn(-0.6, 0.15, 1, new THREE.MeshPhysicalMaterial({ color: 0x1b2623, metalness: 0.6, roughness: 0.25, clearcoat: 0.8 })); // Camera Control (flush, glossy)
+  sideKey(0.78, 0.46, 1, keyMat);                              // power (green)
+  sideKey(0.95, 0.3, -1, caseMat); sideKey(0.55, 0.3, -1, caseMat); // volume up / down
   scene.add(phone);
 
   // ---------------- orbit rings with travelling lead nodes ----------------
@@ -235,8 +246,10 @@ export function initHero(stage: HTMLElement) {
     { r: 2.35, rx: 1.0, rz: -0.55, op: 0.3, speed: -0.24, n: 3 },
     { r: 2.8, rx: 1.3, rz: 0.9, op: 0.18, speed: 0.16, n: 3 },
   ];
-  specs.forEach((sp, k) => {
+  specs.forEach((sp0, k) => {
+    let sp = sp0;
     const g = new THREE.Group(); g.rotation.set(sp.rx, 0, sp.rz);
+    if (small) sp = { ...sp, r: sp.r * 0.7 };
     const pts: number[] = []; for (let i = 0; i <= 160; i++) { const a = (i / 160) * Math.PI * 2; pts.push(Math.cos(a) * sp.r, Math.sin(a) * sp.r * 0.62, 0); }
     const lg = new THREE.BufferGeometry(); lg.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     g.add(new THREE.Line(lg, new THREE.LineBasicMaterial({ color: GREEN, transparent: true, opacity: sp.op, depthWrite: false })));
@@ -267,7 +280,7 @@ export function initHero(stage: HTMLElement) {
   const resize = () => {
     const width = canvas.clientWidth, height = canvas.clientHeight; if (!width || !height) return;
     renderer.setSize(width, height, false); camera.aspect = width / height;
-    camera.position.z = camera.aspect < 0.9 ? 10.2 : 9; camera.updateProjectionMatrix();
+    camera.position.z = small ? 7.0 : camera.aspect < 0.9 ? 10.2 : 9; // phones: bring the camera in so the phone is bigger camera.updateProjectionMatrix();
   };
   resize(); new ResizeObserver(resize).observe(stage);
 
@@ -283,15 +296,17 @@ export function initHero(stage: HTMLElement) {
     requestAnimationFrame(frame);
     if (!visible || document.hidden) return;
     const t = clock.getElapsedTime();
-    if (touch) { target.x = Math.sin(t * 0.5) * 0.6; target.y = Math.cos(t * 0.4) * 0.3; }
+    if (touch) { target.x = Math.sin(t * 0.5) * 0.35; target.y = Math.cos(t * 0.4) * 0.2; }
     cur.x += (target.x - cur.x) * 0.06; cur.y += (target.y - cur.y) * 0.06;
 
     stepChat(t * 1000);
     if (dirty) { drawScreen(cctx, shown, typing); tex.needsUpdate = true; dirty = false; }
 
     const sy = Math.min(1, scrollY / 800);
-    phone.rotation.y = -0.28 + cur.x * 0.5 + sy * 0.5;
-    phone.rotation.x = 0.05 + cur.y * 0.24;
+    // phones: keep the screen nearly face-on so the chat text stays sharp; desktop gets the full 3D turn
+    const yaw = small ? 0.14 : 0.5, scr = small ? 0.1 : 0.5;
+    phone.rotation.y = (small ? -0.2 : -0.28) + cur.x * yaw + sy * scr;
+    phone.rotation.x = 0.05 + cur.y * (small ? 0.12 : 0.24);
     phone.position.x = cur.x * 0.42;
     phone.position.y = -cur.y * 0.22 + Math.sin(t * 0.9) * 0.09;
     glareTex.offset.x = -phone.rotation.y * 0.9 + Math.sin(t * 0.3) * 0.05;

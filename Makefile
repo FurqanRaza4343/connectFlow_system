@@ -2,13 +2,16 @@
 SHELL := bash
 PY ?= python
 
-.PHONY: help up down-safe ps logs test lint e2e e2e-% backup restore-drill retention-now build-ui
+.PHONY: help up down-safe ps logs test lint typecheck e2e e2e-% backup restore-drill retention-now build-ui
 
 help:
 	@grep -E '^[a-zA-Z_%-]+:.*##' $(MAKEFILE_LIST) | sed 's/:.*##/\t/' | column -t -s $$'\t'
 
 up: ## build + start the SaaS stack (never removes volumes)
 	cd infra && docker compose up -d --build
+
+up-dev: ## like `up`, plus the dev-only Mailpit inbox at http://127.0.0.1:8025 (needed only when RESEND_API_KEY is empty)
+	cd infra && docker compose --profile dev up -d --build
 
 ps: ## container status and health
 	cd infra && docker compose ps
@@ -18,6 +21,9 @@ logs: ## follow api + worker logs (JSON)
 
 lint: ## ruff on the backend
 	cd backend && ruff check .
+
+typecheck: ## mypy over the backend (needs requirements-dev.txt)
+	cd backend && mypy
 
 test: ## unit tests (no database or network needed)
 	cd backend && $(PY) -m pytest

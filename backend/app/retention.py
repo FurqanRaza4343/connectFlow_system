@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import redis
 from sqlalchemy import text
+from typing import Any
 
 from .config_ops import ops
 from .db import SessionLocal
@@ -49,7 +50,7 @@ def rollup_counts(rows: list[tuple[str, datetime]]) -> Counter:
     return c
 
 
-def _redis() -> redis.Redis:
+def _redis() -> Any:
     return redis.Redis.from_url(ops.redis_url, decode_responses=True)
 
 
@@ -76,8 +77,9 @@ def run_once(now: datetime | None = None) -> dict:
                 else:
                     res = db.execute(text(f"DELETE FROM {t} WHERE id IN (SELECT id FROM {t} WHERE {w} LIMIT :n)"), params)
                 db.commit()
-                total += res.rowcount or 0
-                if (res.rowcount or 0) < batch:
+                changed = int(getattr(res, "rowcount", 0) or 0)
+                total += changed
+                if changed < batch:
                     break
             deleted[key] = total
     result = {"at": now.isoformat(), "deleted": deleted}

@@ -1,4 +1,5 @@
 """The ONLY place that talks to OpenWA. Customers never see OpenWA or its admin key."""
+from typing import Any
 import httpx
 from pathlib import Path
 
@@ -6,7 +7,7 @@ from .config import settings
 
 
 class WAError(Exception):
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str) -> None:
         super().__init__(message)
         self.status = status
 
@@ -18,7 +19,7 @@ def _key() -> str:
     return p.read_text().strip()
 
 
-async def _call(method: str, path: str, body: dict | None = None):
+async def _call(method: str, path: str, body: dict | None = None) -> Any:
     try:
         async with httpx.AsyncClient(timeout=60) as c:
             r = await c.request(method, f"{settings.openwa_url}/api{path}", json=body, headers={"X-API-Key": _key()})

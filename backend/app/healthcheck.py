@@ -2,6 +2,7 @@
 import sys
 import time
 import urllib.request
+from typing import Any
 
 
 def worker_ok(max_age: int = 60) -> bool:
@@ -9,7 +10,8 @@ def worker_ok(max_age: int = 60) -> bool:
 
     from .config_ops import ops
 
-    v = redis.Redis.from_url(ops.redis_url, decode_responses=True).get("ops:worker:heartbeat")
+    r: Any = redis.Redis.from_url(ops.redis_url, decode_responses=True)
+    v = r.get("ops:worker:heartbeat")
     return bool(v) and time.time() - int(v) <= max_age
 
 

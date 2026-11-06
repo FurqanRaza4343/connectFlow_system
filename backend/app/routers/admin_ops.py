@@ -1,4 +1,6 @@
 """Operations endpoints: platform capacity (admin only) and readiness probe. Wire with `admin_ops.register(app)` in main.py."""
+import time
+from typing import Any
 import json
 from datetime import datetime, timezone
 
@@ -14,11 +16,12 @@ from ..db import get_db
 from ..deps import Ctx, platform_admin
 from ..models import Instance
 from ..ops_logging import RequestLogMiddleware, init_sentry, setup_logging
+from fastapi import FastAPI
 
 router = APIRouter(tags=["ops"])
 
 
-def _r() -> redis.Redis:
+def _r() -> Any:
     return redis.Redis.from_url(ops.redis_url, decode_responses=True)
 
 
@@ -30,7 +33,7 @@ def _json(v: str | None) -> dict:
 
 
 @router.get("/api/admin/capacity")
-async def capacity(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
+async def capacity(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)) -> dict[str, Any]:
     # ---- gateway (the gateway's own view; falls back to our database when it is unreachable)
     sessions = ready = qr = 0
     try:
@@ -61,28 +64,40 @@ async def capacity(db: Session = Depends(get_db), _: Ctx = Depends(platform_admi
 
 
 @router.get("/api/health/ready")
-async def ready(db: Session = Depends(get_db)):
-    """Readiness: database + redis + gateway. 503 if any is down (used by docker healthchecks and uptime monitors)."""
+async def ready(db: Session = Depends(get_db)) -> JSONResponse:
+    """Readiness: database + redis + gateway, with how long each check took (ms). 503 if any is down
+    (used by docker healthchecks and uptime monitors). Nothing secret is ever included."""
     checks: dict[str, str] = {}
+    ms: dict[str, float] = {}
+
+    def took(name: str, t0: float) -> None:
+        ms[name] = round((time.perf_counter() - t0) * 1000, 1)
+
+    t0 = time.perf_counter()
     try:
         db.execute(text("select 1"))
         checks["database"] = "ok"
     except Exception:  # noqa: BLE001
         checks["database"] = "error"
+    took("database", t0)
+    t0 = time.perf_counter()
     try:
         checks["redis"] = "ok" if _r().ping() else "error"
     except Exception:  # noqa: BLE001
         checks["redis"] = "error"
+    took("redis", t0)
+    t0 = time.perf_counter()
     try:
         await wa.health()
         checks["gateway"] = "ok"
     except wa.WAError:
         checks["gateway"] = "error"
+    took("gateway", t0)
     ok = all(v == "ok" for v in checks.values())
-    return JSONResponse({"ok": ok, **checks}, status_code=200 if ok else 503)
+    return JSONResponse({"ok": ok, **checks, "latencyMs": ms}, status_code=200 if ok else 503)
 
 
-def register(app) -> None:
+def register(app: FastAPI) -> None:
     """Call once from main.py: `admin_ops.register(app)` (JSON logs + request ids + optional Sentry + the routes above)."""
     setup_logging()
     init_sentry()

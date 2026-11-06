@@ -1,12 +1,14 @@
 """Customer webhook endpoints: register (public https only), rotate secret, test ping, delivery log. Deliveries are signed with HMAC-SHA256."""
+from typing import Any
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from .. import crypto
 from ..db import get_db
-from ..deps import Ctx, need_role
+from ..deps import Ctx, need_role, TCtx
 from ..events import EVENTS, make_delivery
 from ..models import AuditLog, WebhookDelivery, WebhookEndpoint
 from ..netguard import UnsafeUrl, assert_public_url
@@ -37,7 +39,7 @@ def _events(evs: list[str]) -> str:
     return ",".join(clean)
 
 
-def _own(db: Session, ctx: Ctx, endpoint_id: str) -> WebhookEndpoint:
+def _own(db: Session, ctx: TCtx, endpoint_id: str) -> WebhookEndpoint:
     e = db.query(WebhookEndpoint).filter(WebhookEndpoint.id == endpoint_id, WebhookEndpoint.tenant_id == ctx.tenant.id).first()
     if not e:
         raise HTTPException(404, "webhook not found")
@@ -45,13 +47,13 @@ def _own(db: Session, ctx: Ctx, endpoint_id: str) -> WebhookEndpoint:
 
 
 @router.get("")
-def list_endpoints(ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def list_endpoints(ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     rows = db.query(WebhookEndpoint).filter(WebhookEndpoint.tenant_id == ctx.tenant.id).order_by(WebhookEndpoint.created_at.desc()).all()
     return {"endpoints": [_ep(e) for e in rows], "events": list(EVENTS)}
 
 
 @router.post("", status_code=201)
-async def create_endpoint(body: EndpointIn, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+async def create_endpoint(body: EndpointIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         await assert_public_url(body.url)
     except UnsafeUrl as e:
@@ -59,15 +61,15 @@ async def create_endpoint(body: EndpointIn, ctx: Ctx = Depends(need_role("admin"
     if db.query(WebhookEndpoint).filter(WebhookEndpoint.tenant_id == ctx.tenant.id).count() >= 10:
         raise HTTPException(409, "You can have up to 10 webhook endpoints.")
     secret = "whsec_" + secrets.token_urlsafe(24)
-    e = WebhookEndpoint(tenant_id=ctx.tenant.id, url=body.url.strip(), secret=secret, events=_events(body.events), description=body.description.strip())
-    db.add(e)
-    db.add(AuditLog(tenant_id=ctx.tenant.id, user_id=ctx.user.id, action="webhook.create", detail=e.url))
+    ep = WebhookEndpoint(tenant_id=ctx.tenant.id, url=body.url.strip(), secret=crypto.encrypt(secret), events=_events(body.events), description=body.description.strip())
+    db.add(ep)
+    db.add(AuditLog(tenant_id=ctx.tenant.id, user_id=ctx.user.id, action="webhook.create", detail=ep.url))
     db.commit()
-    return {**_ep(e), "secret": secret}  # shown once
+    return {**_ep(ep), "secret": secret}  # shown once
 
 
 @router.patch("/{endpoint_id}")
-def patch_endpoint(endpoint_id: str, body: EndpointPatch, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def patch_endpoint(endpoint_id: str, body: EndpointPatch, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict:
     e = _own(db, ctx, endpoint_id)
     if body.active is not None:
         e.active = body.active
@@ -80,16 +82,17 @@ def patch_endpoint(endpoint_id: str, body: EndpointPatch, ctx: Ctx = Depends(nee
 
 
 @router.post("/{endpoint_id}/rotate-secret")
-def rotate_secret(endpoint_id: str, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def rotate_secret(endpoint_id: str, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     e = _own(db, ctx, endpoint_id)
-    e.secret = "whsec_" + secrets.token_urlsafe(24)
+    plain = "whsec_" + secrets.token_urlsafe(24)
+    e.secret = crypto.encrypt(plain)
     db.add(AuditLog(tenant_id=ctx.tenant.id, user_id=ctx.user.id, action="webhook.rotate", detail=e.url))
     db.commit()
-    return {"secret": e.secret}  # shown once
+    return {"secret": plain}  # shown once; only the encrypted form is stored
 
 
 @router.delete("/{endpoint_id}", status_code=204)
-def delete_endpoint(endpoint_id: str, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def delete_endpoint(endpoint_id: str, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> None:
     e = _own(db, ctx, endpoint_id)
     db.add(AuditLog(tenant_id=ctx.tenant.id, user_id=ctx.user.id, action="webhook.delete", detail=e.url))
     db.delete(e)
@@ -97,7 +100,7 @@ def delete_endpoint(endpoint_id: str, ctx: Ctx = Depends(need_role("admin")), db
 
 
 @router.post("/{endpoint_id}/test", status_code=202)
-def send_test(endpoint_id: str, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def send_test(endpoint_id: str, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     e = _own(db, ctx, endpoint_id)
     d = make_delivery(db, e, "ping", None, {"message": "This is a test event from ConnectFlow."})
     db.commit()
@@ -105,7 +108,7 @@ def send_test(endpoint_id: str, ctx: Ctx = Depends(need_role("admin")), db: Sess
 
 
 @router.get("/deliveries")
-def deliveries(endpoint_id: str | None = None, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def deliveries(endpoint_id: str | None = None, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
     q = db.query(WebhookDelivery).filter(WebhookDelivery.tenant_id == ctx.tenant.id)
     if endpoint_id:
         q = q.filter(WebhookDelivery.endpoint_id == endpoint_id)
@@ -117,7 +120,7 @@ def deliveries(endpoint_id: str | None = None, ctx: Ctx = Depends(need_role("adm
 
 
 @router.post("/deliveries/{delivery_id}/retry", status_code=202)
-def retry(delivery_id: str, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def retry(delivery_id: str, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     from datetime import datetime, timezone
 
     d = db.query(WebhookDelivery).filter(WebhookDelivery.id == delivery_id, WebhookDelivery.tenant_id == ctx.tenant.id).first()

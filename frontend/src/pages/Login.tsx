@@ -2,6 +2,8 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { api, Me } from '../api';
 import { Logo } from '../components/Logo';
 import { GoogleIcon } from '../components/GoogleIcon';
+import { CUSTOMER_CLS, MfaEnrol, MfaStep } from '../components/Mfa';
+import { Turnstile } from '../components/Turnstile';
 
 type Mode = 'login' | 'signup';
 
@@ -22,10 +24,16 @@ export function Login({ onDone }: { onDone: (m: Me) => void }) {
   const [showPw, setShowPw] = useState(false);
   const [google, setGoogle] = useState<boolean | null>(null);
   const [forgot, setForgot] = useState(false);
+  const [mfaToken, setMfaToken] = useState(new URLSearchParams(location.search).get('mfa_token') || '');  // set by the email step or by Google sign-in
+  const [enrol, setEnrol] = useState(false);              // platform admin signed in but must set up two-step verification first
+  const [siteKey, setSiteKey] = useState('');
+  const [captcha, setCaptcha] = useState('');
+  const [captchaNeeded, setCaptchaNeeded] = useState(false);  // login asks for it only after repeated failures
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   const pw = useMemo(() => strength(f.password), [f.password]);
 
-  useEffect(() => { api<{ google: boolean }>('/api/auth/config').then((c) => setGoogle(c.google)).catch(() => setGoogle(false)); }, []);
+  useEffect(() => { api<{ google: boolean; turnstileSiteKey?: string }>('/api/auth/config').then((c) => { setGoogle(c.google); setSiteKey(c.turnstileSiteKey || ''); }).catch(() => setGoogle(false)); }, []);
+  useEffect(() => { api<{ enrolRequired: boolean }>('/api/auth/mfa/status').then((m) => { if (m.enrolRequired) setEnrol(true); }).catch(() => {}); }, []);
   useEffect(() => { if (location.search) history.replaceState(null, '', location.pathname + location.hash); }, []);
 
   const switchMode = (m: Mode) => { setMode(m); setErr(''); history.replaceState(null, '', `#${m}`); };
@@ -34,12 +42,21 @@ export function Login({ onDone }: { onDone: (m: Me) => void }) {
     e.preventDefault();
     setErr(''); setBusy(true);
     try {
-      onDone(await api<Me>(`/api/auth/${mode}`, 'POST', mode === 'login' ? { email: f.email, password: f.password } : f));
-    } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+      const r = await api<any>(`/api/auth/${mode}`, 'POST', mode === 'login' ? { email: f.email, password: f.password, captcha } : { ...f, captcha });
+      if (r.mfaRequired) setMfaToken(r.mfaToken);
+      else if (r.enrolRequired) setEnrol(true);
+      else onDone(r as Me);
+    } catch (x: any) {
+      if (x.message === 'captcha_required' || x.message === 'captcha_failed') { setCaptchaNeeded(true); setCaptcha(''); setErr('Please complete the security check below, then try again.'); }
+      else setErr(x.message);
+    } finally { setBusy(false); }
   }
 
   const signup = mode === 'signup';
   if (forgot) return <Forgot onBack={() => setForgot(false)} />;
+  if (mfaToken) return <div className="center"><div className="card auth"><Logo size={34} /><MfaStep token={mfaToken} cls={CUSTOMER_CLS} onDone={(m) => onDone(m as Me)} onCancel={() => setMfaToken('')} /></div></div>;
+  if (enrol) return <div className="center"><div className="card auth"><Logo size={34} /><MfaEnrol forced cls={CUSTOMER_CLS} onDone={(m) => { if (m) onDone(m as Me); else location.reload(); }} /></div></div>;
+  const showCaptcha = !!siteKey && (signup || captchaNeeded);
   return (
     <div className="auth-page">
       <aside className="auth-brand">
@@ -97,9 +114,10 @@ export function Login({ onDone }: { onDone: (m: Me) => void }) {
             </div>
           )}
 
+          {showCaptcha && <Turnstile siteKey={siteKey} onToken={setCaptcha} />}
           {err && <div className="err" role="alert">{err}</div>}
 
-          <button className="primary big" disabled={busy}>{busy ? <span className="spin" /> : signup ? 'Create account' : 'Sign in'}</button>
+          <button className="primary big" disabled={busy || (showCaptcha && !captcha)}>{busy ? <span className="spin" /> : signup ? 'Create account' : 'Sign in'}</button>
 
           {signup && <p className="legal muted">By creating an account you agree to our Terms and Privacy Policy, and to use ConnectFlow only for lawful, consent-respecting messaging.</p>}
           <p className="switch muted">
@@ -118,9 +136,12 @@ function Forgot({ onBack }: { onBack: () => void }) {
   const [sent, setSent] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [siteKey, setSiteKey] = useState('');
+  const [captcha, setCaptcha] = useState('');
+  useEffect(() => { api<{ turnstileSiteKey?: string }>('/api/auth/config').then((c) => setSiteKey(c.turnstileSiteKey || '')).catch(() => {}); }, []);
   async function submit(e: FormEvent) {
     e.preventDefault(); setBusy(true); setErr('');
-    try { await api('/api/auth/forgot', 'POST', { email }); setSent(true); } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+    try { await api('/api/auth/forgot', 'POST', { email, captcha }); setSent(true); } catch (x: any) { setErr(x.message === 'captcha_required' || x.message === 'captcha_failed' ? 'Please complete the security check and try again.' : x.message); } finally { setBusy(false); }
   }
   return (
     <div className="center">
@@ -130,8 +151,9 @@ function Forgot({ onBack }: { onBack: () => void }) {
         {sent ? <p className="muted">If an account exists for <b>{email}</b>, we’ve sent a reset link. It is valid for one hour.</p>
           : <><p className="muted">Enter your email and we’ll send you a link to choose a new password.</p>
               <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" /></label>
+              {siteKey && <Turnstile siteKey={siteKey} onToken={setCaptcha} />}
               {err && <div className="err">{err}</div>}
-              <button className="primary big" disabled={busy}>{busy ? <span className="spin" /> : 'Send reset link'}</button></>}
+              <button className="primary big" disabled={busy || (!!siteKey && !captcha)}>{busy ? <span className="spin" /> : 'Send reset link'}</button></>}
         <button type="button" className="link" onClick={onBack}>← Back to sign in</button>
       </form>
     </div>

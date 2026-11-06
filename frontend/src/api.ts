@@ -1,13 +1,13 @@
 export type Brand = { color: string | null; sidebar: string | null; page: string | null; logo: string | null };
 export type Me = {
-  user: { id: string; email: string; name: string; isPlatformAdmin: boolean; avatar: string; emailVerified: boolean };
+  user: { id: string; email: string; name: string; isPlatformAdmin: boolean; avatar: string; emailVerified: boolean; mfaEnabled?: boolean };
   tenant: {
     id: string; name: string; status: string; brand: Brand; website: string;
     plan: { id: string; name: string; maxInstances: number; maxMsgsDay: number; maxMembers: number };
   } | null;
   role: string;
 };
-export type Instance = { id: string; label: string; phone: string; status: string; engine: string; outreachEnabled?: boolean; createdAt: string };
+export type Instance = { id: string; label: string; phone: string; status: string; engine: string; outreachEnabled?: boolean; overLimit?: boolean; createdAt: string };
 export type Via = { id: string; label: string; phone: string; status: string } | null;
 export const viaText = (v: Via | undefined) => (v ? (v.phone ? `+${v.phone.replace(/\D/g, '')}` : v.label) : '');
 

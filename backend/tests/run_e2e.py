@@ -1,6 +1,6 @@
 """Run the end-to-end suites against a running stack (docker compose up).
 
-    python backend/tests/run_e2e.py [name ...]        # names: m2 m3 m4 flow_m3 m3_engine security
+    python backend/tests/run_e2e.py [name ...]        # names: m2 m3 m4 flow_m3 m3_engine security multinumber m5 multinumber m5_billing
 
 Env (see tests/e2e/e2e_env.py): E2E_BASE_URL, E2E_APP_HOST, E2E_ADMIN_HOST, E2E_INFRA_DIR, E2E_ADMIN_PASSWORD,
 E2E_DOCKER_NETWORK (default <compose project>_default), E2E_LOG_DIR (default backend/tests/e2e/logs).
@@ -23,6 +23,8 @@ SUITES = {
     "m4": "e2e_m4.py",
     "security": "test_security.py",
     "multinumber": "test_multinumber.py",
+    "m5": "test_m5_security.py",
+    "m5_billing": "test_m5_billing.py",  # needs the fake-Stripe wrapper; skips itself otherwise
 }
 LOGS = pathlib.Path(os.environ.get("E2E_LOG_DIR", E2E / "logs"))
 
@@ -43,7 +45,7 @@ def start_receiver() -> None:
 def reset_rate_limits() -> None:
     """Signups/logins are throttled per IP for an hour; every suite signs up several test tenants from the same address, so clear those counters first (test stacks only)."""
     infra = os.environ.get("E2E_INFRA_DIR") or str(HERE.parents[1] / "infra")
-    lua = "for _,p in ipairs({'signup:*','login:*','forgot:*','reset:*','verify:*'}) do for _,k in ipairs(redis.call('keys',p)) do redis.call('del',k) end end return 1"
+    lua = "for _,p in ipairs({'signup:*','login:*','login-ip:*','forgot:*','forgot-ip:*','reset:*','verify:*','mfa-ip:*'}) do for _,k in ipairs(redis.call('keys',p)) do redis.call('del',k) end end return 1"
     subprocess.run(["docker", "compose", "exec", "-T", "redis", "redis-cli", "eval", lua, "0"], cwd=infra, capture_output=True)
 
 

@@ -56,7 +56,7 @@ services:
     volumes: [openwa-data:/openwa-data:ro]
     depends_on:
       postgres: { condition: service_healthy }
-      redis: { condition: service_started }
+      redis: { condition: service_healthy }
     healthcheck:
       test: ['CMD', 'python', '-m', 'app.healthcheck', 'api']
       interval: 30s
@@ -89,9 +89,10 @@ services:
       start_period: 60s
     restart: unless-stopped
 
-  # Local mail catcher: every email the app sends (verification, password reset, invites) shows up at http://127.0.0.1:8025
-  # In production remove this service and set SMTP_HOST/SMTP_PORT/SMTP_USER/SMTP_PASSWORD to a real provider.
+  # DEV-ONLY mail catcher (starts only with `--profile dev` / `make up-dev`). When RESEND_API_KEY is set, email goes to Resend and
+  # this container is not needed. Without a Resend key, every email (verification, reset, invites) lands at http://127.0.0.1:8025
   mailpit:
+    profiles: [dev]
     image: axllent/mailpit:latest
     ports: ['127.0.0.1:8025:8025']
     restart: unless-stopped
@@ -111,6 +112,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   # ---------------------------------------------------------------- WhatsApp gateway for customers (Baileys, no Chromium)
@@ -252,6 +258,12 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, SETGID, SETUID]
     logging: { driver: json-file, options: { max-size: '5m', max-file: '2' } }
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O-', '--timeout=4', 'http://127.0.0.1:8080/healthz']   # /healthz answers "OK"; wget ships in the image
+      interval: 30s
+      timeout: 6s
+      retries: 3
+      start_period: 30s
     restart: unless-stopped
 
   orchestrator:

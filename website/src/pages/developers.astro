@@ -237,7 +237,7 @@ const errBody = L('HTTP/1.1 409 Conflict', '', '{ "detail": "This number is not 
 
         <div class="doc-sec" id="idempotency">
           <h2>Idempotency</h2>
-          <p>There is no idempotency key yet: if a <code class="i">POST /v1/messages</code> call times out and you repeat it, the message may be sent twice. Until idempotency keys ship, de-duplicate on your side (for example, record your own message id before calling) and treat <code class="i">202</code> as final.</p>
+          <p>Send an <code class="i">Idempotency-Key</code> header (up to 64 characters: letters, digits and <code class="i">_ . : -</code>) with <code class="i">POST /v1/messages</code> so a retry after a timeout never sends twice. For 24 hours, repeating the same key with the same body returns the original result with <code class="i">Idempotent-Replayed: true</code>, without sending again or using your quota. The same key with a different body returns <code class="i">422</code>; a repeat while the first call is still running returns <code class="i">409</code> (retry in a moment). A call that failed releases its key, so you can retry it safely.</p>
         </div>
 
         <div class="doc-sec" id="usecases">

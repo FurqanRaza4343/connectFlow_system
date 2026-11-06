@@ -6,6 +6,7 @@ import { Activity, Numbers, Users } from './Lists';
 import { Plans, Requests, System } from './Ops';
 import { Appearance } from './Appearance';
 import { Security } from './Security';
+import { ADMIN_CLS, MfaEnrol, MfaStep } from '../components/Mfa';
 
 type Me = { user: { id: string; email: string; name: string; isPlatformAdmin: boolean } };
 const NAV: { id: string; label: string; icon: string }[] = [
@@ -24,10 +25,17 @@ const Brand = () => <span className="ad-brand"><img src="/logo.svg" alt="" />Con
 
 function Login({ onDone, notice }: { onDone: () => void; notice?: string }) {
   const [email, setEmail] = useState(''); const [pw, setPw] = useState(''); const [err, setErr] = useState(notice || ''); const [busy, setBusy] = useState(false);
+  const [mfaToken, setMfaToken] = useState(''); const [enrol, setEnrol] = useState(false);
+  useEffect(() => { api<{ enrolRequired: boolean }>('/api/auth/mfa/status').then((m) => { if (m.enrolRequired) setEnrol(true); }).catch(() => {}); }, []);
   async function submit(e: FormEvent) {
     e.preventDefault(); setBusy(true); setErr('');
-    try { await api('/api/auth/login', 'POST', { email, password: pw }); onDone(); } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
+    try {
+      const r = await api<any>('/api/auth/login', 'POST', { email, password: pw });
+      if (r.mfaRequired) setMfaToken(r.mfaToken); else if (r.enrolRequired) setEnrol(true); else onDone();
+    } catch (x: any) { setErr(x.message); } finally { setBusy(false); }
   }
+  if (mfaToken) return <div className="ad-login"><div className="ad-box"><Brand /><MfaStep token={mfaToken} cls={ADMIN_CLS} onDone={() => onDone()} onCancel={() => setMfaToken('')} /></div></div>;
+  if (enrol) return <div className="ad-login"><div className="ad-box"><Brand /><MfaEnrol forced cls={ADMIN_CLS} onDone={() => onDone()} /></div></div>;
   return (
     <div className="ad-login"><form onSubmit={submit}>
       <Brand /><h1>Sign in to the admin console</h1>

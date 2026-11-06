@@ -13,9 +13,12 @@ import { Overview } from './pages/Overview';
 import { Bell } from './components/Bell';
 import { TokenFlow, tokenFromUrl } from './pages/TokenFlow';
 import { Logo } from './components/Logo';
+import { PlanPrompt, rememberPlanFromUrl } from './components/PlanPrompt';
+
+rememberPlanFromUrl(); // pricing page links arrive as /?plan=starter#signup; Login strips the query, so capture it first
 
 type Tab = 'overview' | 'numbers' | 'outreach' | 'api' | 'webhooks' | 'team' | 'billing' | 'settings';
-const NAV: Array<{ id: Tab; label: string; icon: string; adminOnly?: boolean; platform?: boolean }> = [
+const NAV: Array<{ id: Tab; label: string; icon: string; adminOnly?: boolean }> = [
   { id: 'overview', label: 'Overview', icon: 'M3 12l9-8 9 8M5 10v10h14V10' },
   { id: 'numbers', label: 'WhatsApp numbers', icon: 'M7 2h10a2 2 0 012 2v16a2 2 0 01-2 2H7a2 2 0 01-2-2V4a2 2 0 012-2zm5 17.5a1 1 0 100-2 1 1 0 000 2z' },
   { id: 'outreach', label: 'Outreach', icon: 'M4 5h16M4 12h16M4 19h10M18 17l2 2 3-4' },
@@ -70,7 +73,6 @@ export function App() {
         <div className="side-bottom">
           <div className="who2"><b>{me.user.name || me.user.email}</b><small className="muted">{t?.name} · {t?.plan.name}</small></div>
           {t?.website && <a className="sidelink" href={t.website} target="_blank" rel="noopener noreferrer">Visit website ↗</a>}
-          {me.user.isPlatformAdmin && <a className="sidelink" href={location.origin.replace('//app.', '//admin.')}>Open admin dashboard →</a>}
           <button className="ghost" onClick={logout}>Log out</button>
           {t?.brand.logo && <small className="muted poweredby">Powered by ConnectFlow</small>}
         </div>
@@ -91,6 +93,7 @@ export function App() {
           </div>
         )}
         {notice && <div className="banner ok" onClick={() => setNotice('')}>{notice}</div>}
+        {me.role === 'owner' && me.user.emailVerified && me.tenant?.plan.id === 'trial' && <PlanPrompt onGo={goHash} />}
         <main>
           {tab === 'overview' && t && <Overview me={me} go={goHash} />}
           {tab === 'numbers' && t && <Numbers me={me} />}

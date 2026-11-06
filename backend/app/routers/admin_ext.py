@@ -1,4 +1,5 @@
 """Platform-admin API used by the separate Admin dashboard. Admins see everything about customers EXCEPT message content."""
+from typing import Any
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -13,6 +14,8 @@ from ..db import get_db
 from ..deps import Ctx, platform_admin, rds
 from ..models import (ApiKey, ApiKeyUsage, AuditLog, Instance, Lead, Membership, Message, Plan, Tenant, UpgradeRequest, UsageEvent, User, WebhookDelivery, WebhookEndpoint)
 from ..quota import ai_calls_today, day_start, messages_today
+from ..sqlutil import rows_to_dict
+from collections.abc import Iterable
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -21,7 +24,7 @@ def _iso(d: datetime | None) -> str | None:
     return d.isoformat() if d else None
 
 
-def _series(rows, days: int) -> list[dict]:
+def _series(rows: Iterable[Any], days: int) -> list[dict[str, Any]]:
     start = day_start() - timedelta(days=days - 1)
     m = {str(d): c for d, c in rows}
     return [{"day": str((start + timedelta(days=i)).date()), "count": m.get(str((start + timedelta(days=i)).date()), 0)} for i in range(days)]
@@ -33,7 +36,7 @@ def _provider(u: User) -> str:
 
 # ------------------------------------------------------------------ overview
 @router.get("/overview")
-def overview(_: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+def overview(_: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     week = now - timedelta(days=7)
     tenants = db.query(Tenant).all()
@@ -58,7 +61,7 @@ def overview(_: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
 
 # ------------------------------------------------------------------ customers
 @router.get("/customers")
-def customers(q: str = "", status: str = "", plan: str = "", page: int = Query(1, ge=1), db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
+def customers(q: str = "", status: str = "", plan: str = "", page: int = Query(1, ge=1), db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)) -> dict[str, Any]:
     base = db.query(Tenant)
     if status:
         base = base.filter(Tenant.status == status)
@@ -73,12 +76,12 @@ def customers(q: str = "", status: str = "", plan: str = "", page: int = Query(1
     rows = base.order_by(Tenant.created_at.desc()).offset((page - 1) * size).limit(size).all()
     ids = [t.id for t in rows]
     owners = {m.tenant_id: u for m, u in db.query(Membership, User).join(User, User.id == Membership.user_id).filter(Membership.tenant_id.in_(ids), Membership.role == "owner").all()}
-    seen = dict(db.query(Membership.tenant_id, func.max(User.last_seen_at)).join(User, User.id == Membership.user_id).filter(Membership.tenant_id.in_(ids)).group_by(Membership.tenant_id).all())
-    nums = dict(db.query(Instance.tenant_id, func.count(Instance.id)).filter(Instance.tenant_id.in_(ids)).group_by(Instance.tenant_id).all())
-    mems = dict(db.query(Membership.tenant_id, func.count(Membership.id)).filter(Membership.tenant_id.in_(ids)).group_by(Membership.tenant_id).all())
-    leads = dict(db.query(Lead.tenant_id, func.count(Lead.id)).filter(Lead.tenant_id.in_(ids)).group_by(Lead.tenant_id).all())
-    today = dict(db.query(UsageEvent.tenant_id, func.count(UsageEvent.id)).filter(UsageEvent.tenant_id.in_(ids), UsageEvent.at >= day_start(), UsageEvent.kind == "message").group_by(UsageEvent.tenant_id).all())
-    allm = dict(db.query(UsageEvent.tenant_id, func.count(UsageEvent.id)).filter(UsageEvent.tenant_id.in_(ids), UsageEvent.kind == "message").group_by(UsageEvent.tenant_id).all())
+    seen = rows_to_dict(db.query(Membership.tenant_id, func.max(User.last_seen_at)).join(User, User.id == Membership.user_id).filter(Membership.tenant_id.in_(ids)).group_by(Membership.tenant_id).all())
+    nums = rows_to_dict(db.query(Instance.tenant_id, func.count(Instance.id)).filter(Instance.tenant_id.in_(ids)).group_by(Instance.tenant_id).all())
+    mems = rows_to_dict(db.query(Membership.tenant_id, func.count(Membership.id)).filter(Membership.tenant_id.in_(ids)).group_by(Membership.tenant_id).all())
+    leads = rows_to_dict(db.query(Lead.tenant_id, func.count(Lead.id)).filter(Lead.tenant_id.in_(ids)).group_by(Lead.tenant_id).all())
+    today = rows_to_dict(db.query(UsageEvent.tenant_id, func.count(UsageEvent.id)).filter(UsageEvent.tenant_id.in_(ids), UsageEvent.at >= day_start(), UsageEvent.kind == "message").group_by(UsageEvent.tenant_id).all())
+    allm = rows_to_dict(db.query(UsageEvent.tenant_id, func.count(UsageEvent.id)).filter(UsageEvent.tenant_id.in_(ids), UsageEvent.kind == "message").group_by(UsageEvent.tenant_id).all())
     return {
         "rows": [{"id": t.id, "name": t.name, "ownerEmail": owners[t.id].email if t.id in owners else "", "ownerName": owners[t.id].name if t.id in owners else "", "plan": t.plan_id, "status": t.status,
                   "createdAt": _iso(t.created_at), "lastActiveAt": _iso(seen.get(t.id)), "numbers": nums.get(t.id, 0), "members": mems.get(t.id, 0), "leads": leads.get(t.id, 0),
@@ -88,7 +91,7 @@ def customers(q: str = "", status: str = "", plan: str = "", page: int = Query(1
 
 
 @router.get("/customers/{tenant_id}")
-def customer(tenant_id: str, db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
+def customer(tenant_id: str, db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)) -> dict[str, Any]:
     t = db.get(Tenant, tenant_id)
     if not t:
         raise HTTPException(404, "customer not found")
@@ -96,10 +99,10 @@ def customer(tenant_id: str, db: Session = Depends(get_db), _: Ctx = Depends(pla
     instances = db.query(Instance).filter(Instance.tenant_id == t.id).order_by(Instance.created_at).all()
     keys = db.query(ApiKey).filter(ApiKey.tenant_id == t.id).order_by(ApiKey.created_at.desc()).all()
     eps = db.query(WebhookEndpoint).filter(WebhookEndpoint.tenant_id == t.id).all()
-    dl = {}
+    dl: dict[str, dict[str, int]] = {}
     for ep_id, st, c in db.query(WebhookDelivery.endpoint_id, WebhookDelivery.status, func.count(WebhookDelivery.id)).filter(WebhookDelivery.tenant_id == t.id).group_by(WebhookDelivery.endpoint_id, WebhookDelivery.status).all():
         dl.setdefault(ep_id, {})[st] = c
-    by_status = dict(db.query(Lead.status, func.count(Lead.id)).filter(Lead.tenant_id == t.id).group_by(Lead.status).all())
+    by_status = rows_to_dict(db.query(Lead.status, func.count(Lead.id)).filter(Lead.tenant_id == t.id).group_by(Lead.status).all())
     start = day_start() - timedelta(days=13)
     usage = db.query(func.date(UsageEvent.at), func.count(UsageEvent.id)).filter(UsageEvent.tenant_id == t.id, UsageEvent.kind == "message", UsageEvent.at >= start).group_by(func.date(UsageEvent.at)).all()
     acts = db.query(AuditLog, User.email).outerjoin(User, User.id == AuditLog.user_id).filter(AuditLog.tenant_id == t.id).order_by(AuditLog.id.desc()).limit(150).all()
@@ -115,23 +118,25 @@ def customer(tenant_id: str, db: Session = Depends(get_db), _: Ctx = Depends(pla
         d["lastIp"], d["lastUserAgent"], d["lastAt"] = u.last_ip, u.last_user_agent, _iso(u.last_at)
         if u.day == now.date():
             d["requestsToday"] = u.requests
-    def _kstat(k):
+    def _kstat(k: ApiKey) -> dict[str, Any]:
         d = kstats.get(k.id, {})
         return {"requests7d": d.get("requests7d", 0), "errors7d": d.get("errors7d", 0), "distinctIps7d": len(d.get("ips", ())), "lastIp": d.get("lastIp", ""),
                 "lastUserAgent": d.get("lastUserAgent", ""), "lastSeenAt": d.get("lastAt"), "requestsToday": d.get("requestsToday", 0),
                 "status": "revoked" if k.revoked_at else "suspended" if k.suspended_at else "expired" if (k.expires_at and k.expires_at < now) else "active",
                 "suspendedReason": k.suspended_reason or "", "suspendedBy": k.suspended_by or "", "suspendedAt": _iso(k.suspended_at), "allowedIps": k.allowed_ips or ""}
     week = now - timedelta(days=7)
-    sent_m = dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == t.id, Message.direction == "out", Message.created_at >= week).group_by(Message.instance_id).all())
-    in_m = dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == t.id, Message.direction == "in", Message.created_at >= week).group_by(Message.instance_id).all())
-    sent_t = dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == t.id, Message.direction == "out", Message.created_at >= day_start()).group_by(Message.instance_id).all())
+    sent_m = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == t.id, Message.direction == "out", Message.created_at >= week).group_by(Message.instance_id).all())
+    in_m = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == t.id, Message.direction == "in", Message.created_at >= week).group_by(Message.instance_id).all())
+    sent_t = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == t.id, Message.direction == "out", Message.created_at >= day_start()).group_by(Message.instance_id).all())
 
-    def _icount(iid):  # counters only - admins never see message content
+    def _icount(iid: str | None) -> dict[str, Any]:  # counters only - admins never see message content
         return {"sentToday": sent_t.get(iid, 0), "sent7d": sent_m.get(iid, 0), "replies7d": in_m.get(iid, 0)}
     return {
-        "tenant": {"id": t.id, "name": t.name, "plan": t.plan_id, "status": t.status, "createdAt": _iso(t.created_at), "website": t.website_url, "brandColor": t.brand_color},
+        "tenant": {"id": t.id, "name": t.name, "plan": t.plan_id, "status": t.status, "createdAt": _iso(t.created_at), "website": t.website_url, "brandColor": t.brand_color,
+                   "subscription": {"status": t.subscription_status or "", "customerId": t.stripe_customer_id or "", "subscriptionId": t.stripe_subscription_id or "", "renewsAt": _iso(t.current_period_end),
+                                    "cancelAtPeriodEnd": bool(t.cancel_at_period_end), "pastDueSince": _iso(t.past_due_since)}},
         "members": [{"userId": u.id, "email": u.email, "name": u.name, "role": m.role, "verified": bool(u.email_verified_at), "lastLoginAt": _iso(u.last_login_at), "lastSeenAt": _iso(u.last_seen_at), "provider": _provider(u)} for m, u in members],
-        "instances": [{"id": i.id, "label": i.label, "phone": i.phone, "status": i.status, "createdAt": _iso(i.created_at), "outreachEnabled": i.outreach_enabled, **_icount(i.id)} for i in instances],
+        "instances": [{"id": i.id, "label": i.label, "phone": i.phone, "status": i.status, "createdAt": _iso(i.created_at), "outreachEnabled": i.outreach_enabled, "overLimit": i.over_limit, **_icount(i.id)} for i in instances],
         "keys": [{"id": k.id, "name": k.name, "prefix": k.prefix, "lastUsedAt": _iso(k.last_used_at), "expiresAt": _iso(k.expires_at), "revoked": bool(k.revoked_at or (k.expires_at and k.expires_at < now)), **_kstat(k)} for k in keys],
         "webhooks": [{"id": e.id, "url": e.url, "active": e.active, "events": e.events.split(","), "deliveries": {"success": dl.get(e.id, {}).get("success", 0), "failed": dl.get(e.id, {}).get("failed", 0), "pending": dl.get(e.id, {}).get("pending", 0) + dl.get(e.id, {}).get("retrying", 0)}} for e in eps],
         "leads": {"total": sum(by_status.values()), "byStatus": by_status},
@@ -142,7 +147,7 @@ def customer(tenant_id: str, db: Session = Depends(get_db), _: Ctx = Depends(pla
 
 
 @router.delete("/customers/{tenant_id}", status_code=204)
-async def delete_customer(tenant_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+async def delete_customer(tenant_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> None:
     t = db.get(Tenant, tenant_id)
     if not t:
         raise HTTPException(404, "customer not found")
@@ -164,7 +169,7 @@ async def delete_customer(tenant_id: str, ctx: Ctx = Depends(platform_admin), db
 
 
 @router.post("/users/{user_id}/verify-email")
-def verify_email(user_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+def verify_email(user_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "user not found")
@@ -180,7 +185,7 @@ def _support_throttle(kind: str, user_id: str) -> None:
 
 
 @router.post("/users/{user_id}/resend-verification")
-async def admin_resend_verification(user_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+async def admin_resend_verification(user_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
     """Support action: e-mails the user a fresh verification link. The link/token is never returned to the admin."""
     from .auth import _send_verification
     u = db.get(User, user_id)
@@ -196,7 +201,7 @@ async def admin_resend_verification(user_id: str, ctx: Ctx = Depends(platform_ad
 
 
 @router.post("/users/{user_id}/send-password-reset")
-async def admin_send_password_reset(user_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+async def admin_send_password_reset(user_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
     """Support action: e-mails the user a reset link (valid 1 hour). The admin never sees the token or sets a password."""
     from .. import tokens
     from ..mailer import layout, send_email
@@ -214,7 +219,7 @@ async def admin_send_password_reset(user_id: str, ctx: Ctx = Depends(platform_ad
 
 # ------------------------------------------------------------------ users + activity
 @router.get("/users")
-def users(q: str = "", page: int = Query(1, ge=1), db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
+def users(q: str = "", page: int = Query(1, ge=1), db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)) -> dict[str, Any]:
     base = db.query(User)
     if q.strip():
         like = f"%{q.strip()}%"
@@ -229,7 +234,7 @@ def users(q: str = "", page: int = Query(1, ge=1), db: Session = Depends(get_db)
 
 
 @router.get("/activity")
-def activity(tenant_id: str = "", action: str = "", q: str = "", page: int = Query(1, ge=1), db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
+def activity(tenant_id: str = "", action: str = "", q: str = "", page: int = Query(1, ge=1), db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)) -> dict[str, Any]:
     base = db.query(AuditLog, Tenant.name, User.email).outerjoin(Tenant, Tenant.id == AuditLog.tenant_id).outerjoin(User, User.id == AuditLog.user_id)
     if tenant_id:
         base = base.filter(AuditLog.tenant_id == tenant_id)
@@ -261,12 +266,12 @@ def _plan(p: Plan) -> dict:
 
 
 @router.get("/plans")
-def plans(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
+def plans(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)) -> list[Any]:
     return [_plan(p) for p in db.query(Plan).order_by(Plan.price_usd).all()]
 
 
 @router.put("/plans/{plan_id}")
-def put_plan(plan_id: str, body: PlanIn, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+def put_plan(plan_id: str, body: PlanIn, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> dict:
     p = db.get(Plan, plan_id)
     if not p:
         raise HTTPException(404, "plan not found")
@@ -279,7 +284,7 @@ def put_plan(plan_id: str, body: PlanIn, ctx: Ctx = Depends(platform_admin), db:
 
 
 @router.get("/health")
-async def health(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
+async def health(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)) -> Any:
     out: dict = {"time": datetime.now(timezone.utc).isoformat()}
     try:
         db.execute(text("select 1"))
@@ -297,6 +302,6 @@ async def health(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)
     except Exception as e:  # noqa: BLE001
         out["gateway"] = {"ok": False, "error": e.__class__.__name__}
     since = datetime.now(timezone.utc) - timedelta(hours=24)
-    cnt = dict(db.query(WebhookDelivery.status, func.count(WebhookDelivery.id)).filter(WebhookDelivery.created_at >= since).group_by(WebhookDelivery.status).all())
+    cnt = rows_to_dict(db.query(WebhookDelivery.status, func.count(WebhookDelivery.id)).filter(WebhookDelivery.created_at >= since).group_by(WebhookDelivery.status).all())
     out["worker"] = {"pending": db.query(WebhookDelivery).filter(WebhookDelivery.status == "pending").count(), "retrying": db.query(WebhookDelivery).filter(WebhookDelivery.status == "retrying").count(), "failed24h": cnt.get("failed", 0)}
     return out

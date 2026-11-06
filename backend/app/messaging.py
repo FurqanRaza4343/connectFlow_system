@@ -21,6 +21,8 @@ async def send_text(db: Session, tenant: Tenant, inst: Instance, to: str, text: 
     if not text or len(text) > 4096:
         raise HTTPException(422, "`text` must be 1-4096 characters")
     digits = normalize_to(to)
+    if inst.over_limit:
+        raise HTTPException(403, "This number is over your plan's limit and is paused. Upgrade your plan (or remove other numbers) to use it again.")
     if inst.status != "ready":
         raise HTTPException(409, f"This number is not connected (status: {inst.status}). Link it from the dashboard first.")
     ev = reserve_message(db, tenant.id, inst.id, api_key_id)  # raises 429 when the plan limit is reached

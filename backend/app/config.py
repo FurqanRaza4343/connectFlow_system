@@ -1,4 +1,8 @@
-from pydantic import model_validator
+import base64
+
+from typing import Any
+
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -50,9 +54,35 @@ class Settings(BaseSettings):
     sec_volume_mult: int = 10
     ai_global_daily_cap: int = 0           # AI calls per UTC day for the whole platform (circuit breaker); 0 = off
 
+    # Stripe billing. Leave STRIPE_SECRET_KEY empty to keep the manual upgrade-request flow.
+    stripe_secret_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_starter: str = ""         # optional price_... ids; without them Checkout uses inline USD prices from the plans table
+    stripe_price_growth: str = ""
+    stripe_api_base: str = "https://api.stripe.com"  # tests point this at a fake server
+
     # First platform admin (created on startup if missing)
     admin_email: str = ""
     admin_password: str = ""
+
+    # Encryption at rest for webhook signing secrets and 2FA secrets (Fernet: urlsafe-base64 of 32 random bytes).
+    # Empty = derive a key from JWT_SECRET (development only; production requires a dedicated key). See docs/SECRETS.md for rotation.
+    encryption_key: str = ""
+    encryption_key_previous: str = ""      # the old key while rotating (decrypt-only), removed after `python -m app.tools.reencrypt`
+
+    # Two-factor authentication: None = required for platform admins exactly when COOKIE_SECURE=true (production)
+    admin_2fa_required: bool | None = None
+
+    # Signup abuse controls
+    disposable_email_allow: str = ""       # comma separated domains that are allowed even though they are on the disposable list
+    turnstile_site_key: str = ""           # Cloudflare Turnstile (optional): both keys set = captcha on signup / forgot / login after failures
+    turnstile_secret_key: str = ""
+
+    @field_validator("admin_2fa_required", mode="before")
+    @classmethod
+    def _blank_is_default(cls, v: Any) -> Any:
+        """`ADMIN_2FA_REQUIRED=` (empty) in .env means "use the default", not a parse error."""
+        return None if isinstance(v, str) and not v.strip() else v
 
     @model_validator(mode="after")
     def _production_sanity(self) -> "Settings":
@@ -66,10 +96,24 @@ class Settings(BaseSettings):
                 raise ValueError("WEBHOOK_ALLOW_PRIVATE must be false in production")
             if self.ai_fake or self.outreach_fake_send:
                 raise ValueError("AI_FAKE / OUTREACH_FAKE_SEND are test switches and must be off in production")
+            if not self.encryption_key:
+                raise ValueError("ENCRYPTION_KEY is required in production (generate with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\")")
+        for name in ("encryption_key", "encryption_key_previous"):
+            v = getattr(self, name)
+            if v:
+                try:  # (not imported from crypto.py: that module imports this one)
+                    ok = len(base64.urlsafe_b64decode(v.encode())) == 32
+                except Exception:  # noqa: BLE001
+                    ok = False
+                if not ok:
+                    raise ValueError(f"{name.upper()} is not a valid Fernet key (urlsafe base64 of 32 bytes)")
+        if bool(self.turnstile_site_key) != bool(self.turnstile_secret_key):
+            raise ValueError("Set both TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY, or neither")
         return self
 
     class Config:
         env_file = ".env"
+        extra = "ignore"  # a dev .env also holds compose-only keys (POSTGRES_PASSWORD, APP_HOST, ...): never crash on them
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]  # required fields (JWT_SECRET, ...) are read from the environment

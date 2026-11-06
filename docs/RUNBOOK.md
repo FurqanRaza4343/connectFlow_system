@@ -11,7 +11,8 @@ Never run `docker compose down -v` or delete a volume on a live system: `pg-data
 | `worker` | webhook delivery, outreach engine, **session reaper/reconciler**, **retention**, heartbeat | Redis key `ops:worker:heartbeat` (< 60 s old) |
 | `wa-gateway` | OpenWA / Baileys sessions; data DB = database `openwa` on the shared Postgres | `/api/health/ready` on the gateway |
 | `gateway-db-init` | one-shot, idempotent: creates role/db `openwa` before the gateway starts | exits 0 |
-| `postgres`, `redis`, `mailpit`, `searxng` | data, queues/state, dev mail, search | |
+| `postgres`, `redis`, `searxng` | data, queues/state, search | |
+| `mailpit` (profile `dev`) | dev-only mail catcher, started with `--profile dev` / `make up-dev`; not used when `RESEND_API_KEY` is set | |
 | `uptime-kuma` | optional (`--profile monitoring`) | http://127.0.0.1:3001 |
 
 Logs are one JSON object per line (`ts, level, logger, msg, request_id, tenant_id, user_id, method, path, status, ms`). No bodies, headers, cookies or query strings are ever logged. Every response carries `x-request-id`; quote it when debugging.
@@ -118,3 +119,24 @@ Errors: set `SENTRY_DSN` to enable Sentry (off by default). Events are scrubbed:
 | Messages stuck queued | worker unhealthy? `docker compose logs worker`; outreach daily limits / active hours |
 | `ready` returns 503 | the JSON names the failing dependency (`database`, `redis`, `gateway`) |
 | A session disappeared | audit log `instance.reaped` / `instance.idle_stopped` shows who/what removed it |
+
+## 7. Account requests and 2FA support (M5)
+
+### Deleting a workspace on request (GDPR / "delete my data")
+A workspace owner can press **Settings > Your data > Request workspace deletion** (password required). That only records the request and emails the owner and `ADMIN_EMAIL`: **nothing is deleted automatically.** To act on it:
+1. List open requests: `docker compose exec postgres psql -U connectflow -d connectflow -c "select id, name, deletion_requested_at from tenants where deletion_requested_at is not null order by 3;"`
+2. Confirm with the owner by email (reply from the address on file). Offer the data export first (Settings > Your data > Download my data, 3 per day).
+3. Admin console > Customers > open the workspace > **Delete**. This removes its gateway sessions, the workspace, all of its rows (leads, messages, drafts, keys, webhooks ... by cascade) and users who belong to no other workspace. It is audited (`admin.customer.delete`). Platform-admin workspaces cannot be deleted here.
+4. Tell the owner it is done. Data may remain in encrypted backups until they expire (30 days by default, see section 4).
+The owner can withdraw the request any time (Settings > Your data > Cancel the deletion request).
+
+### A user lost their authenticator app and their recovery codes
+Verify who they are first (email on file, plus whatever your policy requires). Then clear their 2FA so they can sign in with the password and set it up again:
+```sql
+update users set totp_secret=null, totp_enabled_at=null, totp_last_step=null, recovery_codes='[]'::json where email='person@example.com';
+insert into audit_log (at, tenant_id, user_id, action, detail) select now(), null, id, 'mfa.reset_by_support', 'cleared by an operator' from users where email='person@example.com';
+```
+Platform admins are sent straight to the enrolment screen at their next sign-in while `ADMIN_2FA_REQUIRED` is on (default in production).
+
+### Related settings
+`ADMIN_2FA_REQUIRED` (default: on when `COOKIE_SECURE=true`), `ENCRYPTION_KEY` / `ENCRYPTION_KEY_PREVIOUS` (docs/SECRETS.md), `DISPOSABLE_EMAIL_ALLOW`, `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`. Trial workspaces may start at most 3 WhatsApp sessions per hour.

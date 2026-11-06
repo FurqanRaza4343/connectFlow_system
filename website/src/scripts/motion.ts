@@ -68,25 +68,31 @@ if (chips.length && !reduced && matchMedia('(hover: hover)').matches) {
 
 if (!reduced) {
   // ---------- smooth scroll ----------
-  const lenis = new Lenis({ duration: 1.05, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)) });
-  lenis.on('scroll', ScrollTrigger.update);
-  gsap.ticker.add((t) => lenis.raf(t * 1000));
-  gsap.ticker.lagSmoothing(0);
-  document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((a) =>
-    a.addEventListener('click', (e) => {
-      const id = a.getAttribute('href');
-      const el = id && id.length > 1 ? document.querySelector(id) : null;
-      if (el) { e.preventDefault(); lenis.scrollTo(el as HTMLElement, { offset: -80 }); }
-    }),
-  );
-  // the horizontal feature track and textareas must scroll natively
-  document.querySelectorAll('#track, textarea').forEach((el) => el.setAttribute('data-lenis-prevent', ''));
+  // Only for mouse-driven desktops. Phones/tablets (and the browser's mobile emulation) keep the browser's own scrolling,
+  // which is what makes touch feel right; fighting it with a JS scroller caused the stops and jumps.
+  const smooth = matchMedia('(hover: hover) and (pointer: fine)').matches && innerWidth > 900;
+  if (smooth) {
+    const lenis = new Lenis({ duration: 1.0, easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)) });
+    lenis.on('scroll', ScrollTrigger.update);
+    gsap.ticker.add((t) => lenis.raf(t * 1000));
+    gsap.ticker.lagSmoothing(0);
+    document.querySelectorAll<HTMLAnchorElement>('a[href^="#"]').forEach((a) =>
+      a.addEventListener('click', (e) => {
+        const id = a.getAttribute('href');
+        const el = id && id.length > 1 ? document.querySelector(id) : null;
+        if (el) { e.preventDefault(); lenis.scrollTo(el as HTMLElement, { offset: -80 }); }
+      }),
+    );
+    // Only text boxes keep native scrolling. The horizontal feature track must NOT opt out: Lenis ignores sideways wheel
+    // gestures by itself, while an opt-out made vertical wheel scrolling jump between two scrollers.
+    document.querySelectorAll('textarea').forEach((el) => el.setAttribute('data-lenis-prevent', ''));
+  }
 
   // ---------- hero headline ----------
   const spans = document.querySelectorAll('.hero h1 .line > span');
   if (spans.length) gsap.from(spans, { yPercent: 115, duration: 1.1, ease: 'expo.out', stagger: 0.11, delay: 0.05 });
   gsap.from('.hero [data-hero-in]', { opacity: 0, y: 20, duration: 0.9, ease: 'power3.out', stagger: 0.09, delay: 0.35 });
-  gsap.from('.hero .chip', { opacity: 0, scale: 0.9, duration: 0.9, ease: 'power3.out', stagger: 0.12, delay: 0.9 });
+  if (innerWidth > 900) gsap.from('.hero .chip', { opacity: 0, scale: 0.9, duration: 0.9, ease: 'power3.out', stagger: 0.12, delay: 0.9 }); // phones fade them in with plain CSS
 
   // ---------- scroll reveals ----------
   revealOnScroll();

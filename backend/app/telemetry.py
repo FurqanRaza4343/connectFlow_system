@@ -8,10 +8,12 @@ Design (all of it fails OPEN: if Redis is down the public API keeps working, we 
   write an audit row. The same incident is never reported twice inside its dedupe window.
 - `v1_guard` is a middleware that runs BEFORE the key lookup: per-IP request limit and a stricter bucket for repeated 401s.
 """
+from typing import Any
 import asyncio
 import ipaddress
 import logging
 import threading
+from collections.abc import Awaitable, Callable
 import time
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -19,7 +21,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Request
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 
 from .config import settings
 from .db import SessionLocal
@@ -39,7 +41,7 @@ def client_ip(request: Request) -> str:
     return (xff.split(",")[0].strip() if xff else "") or (request.client.host if request.client else "?")
 
 
-def _safe(fn, default=None):
+def _safe(fn: Callable[[], Any], default: Any = None) -> Any:
     try:
         return fn()
     except Exception:  # noqa: BLE001 - Redis down must never break the API
@@ -65,7 +67,7 @@ def record_event(severity: str, kind: str, detail: str, tenant_id: str | None = 
 
 # ------------------------------------------------------------------ owner e-mail
 def _notify_owner(email: str, subject: str, body_html: str, text: str) -> None:
-    def run():
+    def run() -> None:
         try:
             asyncio.run(send_email(email, subject, text, layout(subject, body_html)))
         except Exception:  # noqa: BLE001
@@ -232,7 +234,7 @@ def _count_fail(ip: str) -> None:
         record_event("warn", "auth_storm", f"{n} failed API-key attempts from {ip} within 5 minutes; this address is blocked for a few minutes", None, None, dedupe=f"storm:{ip}", ttl=900)
 
 
-async def v1_guard(request: Request, call_next):
+async def v1_guard(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     if not request.url.path.startswith("/v1/"):
         return await call_next(request)
     ip = client_ip(request)

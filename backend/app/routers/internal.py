@@ -2,9 +2,12 @@
 import hashlib
 import hmac
 import json
+import logging
 import re
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -16,34 +19,54 @@ from ..alerts import send_alert
 from ..models import Instance
 
 router = APIRouter(prefix="/internal", tags=["internal"])
+log = logging.getLogger("internal")
 
 
-@router.post("/wa-webhook")
-async def wa_webhook(request: Request, db: Session = Depends(get_db)):
+def _text(v: object, limit: int = 4096) -> str:
+    """Gateway payload fields are untrusted: only strings/numbers are accepted, everything else becomes empty."""
+    return str(v).strip()[:limit] if isinstance(v, (str, int, float)) and not isinstance(v, bool) else ""
+
+
+@router.post("/wa-webhook", response_model=None)
+async def wa_webhook(request: Request, db: Session = Depends(get_db)) -> dict[str, Any] | JSONResponse:
     raw = await request.body()
     sig = request.headers.get("x-openwa-signature", "")
     expected = "sha256=" + hmac.new(settings.openwa_webhook_secret.encode(), raw, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(sig, expected):
         raise HTTPException(401, "bad signature")
-    idem = request.headers.get("x-openwa-idempotency-key")
-    if idem and not rds.set(f"wh:{idem}", "1", nx=True, ex=86400):
-        return {"ok": True, "duplicate": True}  # the gateway retried a delivery we already processed
     try:
         payload = json.loads(raw or b"{}")
         if not isinstance(payload, dict):
             raise ValueError("payload must be an object")
     except ValueError:
         raise HTTPException(400, "invalid JSON body")
-    event = payload.get("event") or request.headers.get("x-openwa-event")
-    data = payload.get("data", payload)
-    sid = data.get("sessionId") or payload.get("sessionId")
+    idem = request.headers.get("x-openwa-idempotency-key")
+    idem_key = f"wh:{idem[:100]}" if idem else ""
+    if idem_key and not rds.set(idem_key, "1", nx=True, ex=86400):
+        return {"ok": True, "duplicate": True}  # the gateway retried a delivery we already processed
+    try:
+        await _handle(db, request, payload)
+    except Exception:  # noqa: BLE001 - a bad event must not become a crash loop: log (no payload), release the dedupe key so a retry can succeed
+        db.rollback()
+        if idem_key:
+            rds.delete(idem_key)
+        log.exception("could not process a gateway event")
+        return JSONResponse({"ok": False}, status_code=500)
+    return {"ok": True}
+
+
+async def _handle(db: Session, request: Request, payload: dict[str, Any]) -> None:
+    event = _text(payload.get("event")) or _text(request.headers.get("x-openwa-event"))
+    raw_data = payload.get("data", payload)
+    data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
+    sid = _text(data.get("sessionId")) or _text(payload.get("sessionId"))
     if event == "session.status" and sid:
-        inst = db.query(Instance).filter(Instance.openwa_id == str(sid)).first()
+        inst = db.query(Instance).filter(Instance.openwa_id == sid).first()
         if inst:  # session -> tenant mapping happens here: unknown sessions are ignored
             old_status = inst.status
-            inst.status = str(data.get("status") or inst.status)
+            inst.status = _text(data.get("status"), 24) or inst.status
             if data.get("phone"):
-                inst.phone = str(data["phone"])
+                inst.phone = _text(data.get("phone"), 32)
             db.commit()
             if inst.status != old_status:
                 emit(db, inst.tenant_id, "instance.status", inst, {"status": inst.status, "phone": inst.phone})
@@ -53,15 +76,14 @@ async def wa_webhook(request: Request, db: Session = Depends(get_db)):
                     await send_alert(db, inst.tenant_id, "session", f"WhatsApp number {inst.phone or inst.label} needs attention",
                                      [f"Your number {inst.label} ({inst.phone or 'not linked'}) is now '{inst.status}'.", "Open WhatsApp numbers and scan the QR code again if it does not reconnect on its own. Replies and follow-ups on this number wait until it is back."])
     elif event == "message.received" and sid:
-        inst = db.query(Instance).filter(Instance.openwa_id == str(sid)).first()
-        frm = str(data.get("from") or "")
-        text = (data.get("body") or data.get("text") or "").strip()
+        inst = db.query(Instance).filter(Instance.openwa_id == sid).first()
+        frm = _text(data.get("from"))
+        text = _text(data.get("body")) or _text(data.get("text"))
         if inst and text and not data.get("fromMe") and not data.get("isGroup") and not re.search(r"@(g\.us|newsletter|broadcast)$", frm):
-            number = re.sub(r"\D", "", str(data.get("senderPhone") or frm.split("@")[0]))
-            emit(db, inst.tenant_id, "message.received", inst, {"from": number, "text": text, "messageId": str(data.get("id") or data.get("messageId") or "")})
+            number = re.sub(r"\D", "", _text(data.get("senderPhone")) or frm.split("@")[0])
+            emit(db, inst.tenant_id, "message.received", inst, {"from": number, "text": text, "messageId": _text(data.get("id")) or _text(data.get("messageId"))})
             try:
                 await og.handle_inbound(db, inst, number, text, frm)
             except Exception:  # noqa: BLE001  never fail the gateway webhook because lead handling failed
                 db.rollback()
-    # message.received: routed to the tenant's webhooks / lead-gen module in later phases
-    return {"ok": True}
+                log.exception("lead handling failed for an inbound message")

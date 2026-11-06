@@ -1,5 +1,6 @@
 """Platform-admin Security API: events raised by the detection rules (app/telemetry.py), flagged keys, kill switches.
 Admins see key names, prefixes, IPs and counters. They never see message content or full keys (only a hash is stored)."""
+from typing import Any
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,6 +12,7 @@ from ..db import get_db
 from ..deps import Ctx, platform_admin, rds
 from ..models import ApiKey, ApiKeyUsage, AuditLog, Membership, SecurityEvent, Tenant, User
 from ..telemetry import reset_known_ips, suspend_key
+from ..sqlutil import rows_to_dict
 
 router = APIRouter(prefix="/api/admin/security", tags=["admin-security"])
 
@@ -26,11 +28,11 @@ def _event(e: SecurityEvent, tenant: str | None, key: ApiKey | None) -> dict:
 
 
 @router.get("/overview")
-def overview(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
+def overview(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     since = now - timedelta(hours=24)
-    sev = dict(db.query(SecurityEvent.severity, func.count(SecurityEvent.id)).filter(SecurityEvent.at >= since).group_by(SecurityEvent.severity).all())
-    open_ = dict(db.query(SecurityEvent.severity, func.count(SecurityEvent.id)).filter(SecurityEvent.resolved.is_(False)).group_by(SecurityEvent.severity).all())
+    sev = rows_to_dict(db.query(SecurityEvent.severity, func.count(SecurityEvent.id)).filter(SecurityEvent.at >= since).group_by(SecurityEvent.severity).all())
+    open_ = rows_to_dict(db.query(SecurityEvent.severity, func.count(SecurityEvent.id)).filter(SecurityEvent.resolved.is_(False)).group_by(SecurityEvent.severity).all())
     flagged_ids = {k for (k,) in db.query(SecurityEvent.key_id).filter(SecurityEvent.resolved.is_(False), SecurityEvent.key_id.isnot(None), SecurityEvent.severity.in_(("warn", "critical"))).distinct().all()}
     flagged_ids |= {k for (k,) in db.query(ApiKey.id).filter(ApiKey.suspended_at.isnot(None), ApiKey.revoked_at.is_(None)).all()}
     keys = db.query(ApiKey, Tenant.name).join(Tenant, Tenant.id == ApiKey.tenant_id).filter(ApiKey.id.in_(flagged_ids or ["-"])).all()
@@ -61,7 +63,7 @@ def overview(db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
 
 @router.get("/events")
 def events(severity: str = "", kind: str = "", resolved: str = "", tenant_id: str = "", key_id: str = "", page: int = Query(1, ge=1),
-           db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)):
+           db: Session = Depends(get_db), _: Ctx = Depends(platform_admin)) -> dict[str, Any]:
     base = db.query(SecurityEvent)
     if severity:
         base = base.filter(SecurityEvent.severity == severity)
@@ -77,12 +79,12 @@ def events(severity: str = "", kind: str = "", resolved: str = "", tenant_id: st
     rows = base.order_by(SecurityEvent.id.desc()).offset((page - 1) * size).limit(size).all()
     tn = {t.id: t.name for t in db.query(Tenant).filter(Tenant.id.in_({e.tenant_id for e in rows if e.tenant_id} or ["-"])).all()}
     ks = {k.id: k for k in db.query(ApiKey).filter(ApiKey.id.in_({e.key_id for e in rows if e.key_id} or ["-"])).all()}
-    return {"rows": [_event(e, tn.get(e.tenant_id), ks.get(e.key_id)) for e in rows], "total": total, "page": page, "pages": max(1, -(-total // size)),
+    return {"rows": [_event(e, tn.get(e.tenant_id or ""), ks.get(e.key_id or "")) for e in rows], "total": total, "page": page, "pages": max(1, -(-total // size)),
             "kinds": [k for (k,) in db.query(SecurityEvent.kind).distinct().order_by(SecurityEvent.kind).all()]}
 
 
 @router.post("/events/{event_id}/resolve")
-def resolve(event_id: int, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+def resolve(event_id: int, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
     e = db.get(SecurityEvent, event_id)
     if not e:
         raise HTTPException(404, "event not found")
@@ -98,7 +100,7 @@ class SuspendIn(BaseModel):
 
 
 @router.post("/keys/{key_id}/suspend")
-def suspend(key_id: str, body: SuspendIn | None = None, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+def suspend(key_id: str, body: SuspendIn | None = None, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
     k = db.get(ApiKey, key_id)
     if not k:
         raise HTTPException(404, "key not found")
@@ -108,7 +110,7 @@ def suspend(key_id: str, body: SuspendIn | None = None, ctx: Ctx = Depends(platf
 
 
 @router.post("/keys/{key_id}/unsuspend")
-def unsuspend(key_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+def unsuspend(key_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
     k = db.get(ApiKey, key_id)
     if not k:
         raise HTTPException(404, "key not found")
@@ -122,7 +124,7 @@ def unsuspend(key_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Dep
 
 
 @router.post("/tenants/{tenant_id}/lock")
-def lock_tenant(tenant_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)):
+def lock_tenant(tenant_id: str, ctx: Ctx = Depends(platform_admin), db: Session = Depends(get_db)) -> dict[str, Any]:
     """Kill switch for a workspace: suspend it (API + app access stop) and suspend all its live keys. Re-activate it from the Customers page."""
     t = db.get(Tenant, tenant_id)
     if not t:

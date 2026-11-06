@@ -64,7 +64,7 @@ async def crawl_site(website: str) -> dict:
     emails: set[str] = set()
     phones: set[str] = set()
 
-    def harvest(pg: dict):
+    def harvest(pg: dict) -> None:
         for href in re.findall(r'href\s*=\s*["\']([^"\'#]+)["\']', pg["html"], re.I):
             h = href.strip()
             if h.lower().startswith("mailto:"):
@@ -170,7 +170,7 @@ async def enrich_lead(db: Session, lead: Lead, profile: OutreachProfile, overwri
                 facts[k] = facts.get(k) or crawl["links"].get(k, "")
     report["found"].update({k: facts.get(k) for k in ("summary", "emails", "phones", "linkedin", "facebook", "leadership") if facts.get(k)})
 
-    def put(attr: str, value: str):
+    def put(attr: str, value: str) -> None:
         value = (value or "").strip()
         if value and (overwrite or not getattr(lead, attr)):
             setattr(lead, attr, value[:300])

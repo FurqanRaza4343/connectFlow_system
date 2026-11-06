@@ -1,4 +1,5 @@
 """Developer API keys: create (shown once), list, revoke, permanently delete, IP allow-list. Only a SHA-256 hash and a prefix are stored."""
+from typing import Any
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
@@ -8,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import Ctx, need_role, require_verified
+from ..deps import Ctx, need_role, require_verified, TCtx
 from ..models import ApiKey, ApiKeyUsage, AuditLog, Instance
 from ..telemetry import parse_allowed, reset_known_ips
 from ..quota import last_days, messages_today
@@ -72,7 +73,7 @@ def _out(k: ApiKey, u: ApiKeyUsage | None = None) -> dict:
 
 
 @router.get("/keys")
-def list_keys(ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def list_keys(ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> Any:
     rows = db.query(ApiKey).filter(ApiKey.tenant_id == ctx.tenant.id).order_by(ApiKey.created_at.desc()).all()
     today = {u.key_id: u for u in db.query(ApiKeyUsage).filter(ApiKeyUsage.tenant_id == ctx.tenant.id, ApiKeyUsage.day == datetime.now(timezone.utc).date()).all()}
     # last IP: today's row, else the latest earlier one
@@ -88,7 +89,7 @@ def list_keys(ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_
 
 
 @router.post("/keys", status_code=201)
-def create_key(body: KeyIn, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def create_key(body: KeyIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     require_verified(ctx)
     if body.instance_id and not db.query(Instance).filter(Instance.id == body.instance_id, Instance.tenant_id == ctx.tenant.id).first():
         raise HTTPException(404, "instance not found")
@@ -107,7 +108,7 @@ def create_key(body: KeyIn, ctx: Ctx = Depends(need_role("admin")), db: Session 
     return {**_out(k), "key": plain}  # the only time the plaintext is ever returned
 
 
-def _own(db: Session, ctx: Ctx, key_id: str) -> ApiKey:
+def _own(db: Session, ctx: TCtx, key_id: str) -> ApiKey:
     k = db.query(ApiKey).filter(ApiKey.id == key_id, ApiKey.tenant_id == ctx.tenant.id).first()
     if not k:
         raise HTTPException(404, "key not found")
@@ -115,7 +116,7 @@ def _own(db: Session, ctx: Ctx, key_id: str) -> ApiKey:
 
 
 @router.patch("/keys/{key_id}")
-def patch_key(key_id: str, body: KeyPatch, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def patch_key(key_id: str, body: KeyPatch, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict:
     k = _own(db, ctx, key_id)
     if body.name is not None:
         k.name = body.name.strip()
@@ -127,7 +128,7 @@ def patch_key(key_id: str, body: KeyPatch, ctx: Ctx = Depends(need_role("admin")
 
 
 @router.post("/keys/{key_id}/unsuspend")
-def unsuspend_key(key_id: str, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def unsuspend_key(key_id: str, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict:
     k = _own(db, ctx, key_id)
     if not k.suspended_at:
         raise HTTPException(409, "This key is not suspended.")
@@ -141,7 +142,7 @@ def unsuspend_key(key_id: str, ctx: Ctx = Depends(need_role("admin")), db: Sessi
 
 
 @router.post("/keys/{key_id}/rotate", status_code=201)
-def rotate_key(key_id: str, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def rotate_key(key_id: str, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     """New key with the same name/instance/allow-list/lifetime; the old one is revoked at once. Plaintext is shown once."""
     require_verified(ctx)
     old = _own(db, ctx, key_id)
@@ -159,7 +160,7 @@ def rotate_key(key_id: str, ctx: Ctx = Depends(need_role("admin")), db: Session 
 
 
 @router.delete("/keys/{key_id}", status_code=204)
-def revoke_key(key_id: str, permanent: bool = False, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def revoke_key(key_id: str, permanent: bool = False, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> None:
     """Default: revoke (the key stops working but stays in the list). permanent=true: remove it for good."""
     k = db.query(ApiKey).filter(ApiKey.id == key_id, ApiKey.tenant_id == ctx.tenant.id).first()
     if not k:
@@ -174,5 +175,5 @@ def revoke_key(key_id: str, permanent: bool = False, ctx: Ctx = Depends(need_rol
 
 
 @router.get("/usage")
-def usage(ctx: Ctx = Depends(need_role("viewer")), db: Session = Depends(get_db)):
+def usage(ctx: TCtx = Depends(need_role("viewer")), db: Session = Depends(get_db)) -> dict[str, Any]:
     return {"today": messages_today(db, ctx.tenant.id), "limit": ctx.tenant.plan.max_msgs_day, "plan": ctx.tenant.plan.name, "days": last_days(db, ctx.tenant.id)}

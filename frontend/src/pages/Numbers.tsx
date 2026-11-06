@@ -41,19 +41,27 @@ export function Numbers({ me }: { me: Me }) {
   return (
     <section>
       <div className="row between">
-        <div><h2>WhatsApp numbers</h2><p className="muted">{list.length} of {limit} used on your {me.tenant!.plan.name} plan</p></div>
+        <div><h2>WhatsApp numbers</h2><p className="muted">{list.length} of {limit} number{limit > 1 ? 's' : ''} used on your {me.tenant!.plan.name} plan</p>
+          <div className="meterbar num-meter" aria-hidden="true"><i style={{ width: `${Math.min(100, (list.length / Math.max(1, limit)) * 100)}%` }} className={list.length >= limit ? 'hot' : ''} /></div></div>
         {canManage && (
           <div className="row">
             <input placeholder="Label, e.g. Sales team" value={label} onChange={(e) => setLabel(e.target.value)} />
-            <button className="primary" onClick={add} disabled={list.length >= limit}>+ Add number</button>
+            <button className="primary" onClick={add} disabled={list.length >= limit} title={list.length >= limit ? `Your ${me.tenant!.plan.name} plan includes ${limit} number${limit > 1 ? 's' : ''}` : undefined}>+ Add number</button>
           </div>
         )}
       </div>
       {err && <div className="err">{err}</div>}
+      {list.length >= limit && (
+        <div className="card upsell">
+          <div><b>{me.tenant!.plan.name === 'Trial' ? 'Your free Trial includes 1 WhatsApp number.' : `Your ${me.tenant!.plan.name} plan is full.`}</b>
+            <p className="muted">Need more? Starter has 3 numbers and 500 messages a day; Growth has 10 numbers and 3,000 messages a day.</p></div>
+          {me.role === 'owner' ? <a className="btn-link primary" href="#billing">See plans &amp; upgrade</a> : <small className="muted">Ask the workspace owner to upgrade.</small>}
+        </div>
+      )}
       <div className="grid">
         {list.map((i) => (
           <div className="card" key={i.id}>
-            <div className="row between"><b>{i.label}</b>{badge(i.status)}</div>
+            <div className="row between"><b>{i.label}</b>{i.overLimit ? <span className="badge bad" title="Your plan was downgraded below the number of linked numbers. The number is kept but paused.">Over plan limit</span> : badge(i.status)}</div>
             <p className="muted">{i.phone ? `+${i.phone.replace(/\D/g, '')}` : 'No number linked yet'}</p>
             {stats[i.id] && <div className="num-stats"><span><b>{stats[i.id].sentToday}</b>/{stats[i.id].warmupCap}<small>today (warm-up cap)</small></span><span><b>{stats[i.id].sent7d}</b><small>sent · 7 days</small></span><span><b>{stats[i.id].replies7d}</b><small>replies · 7 days</small></span></div>}
             <label className="switch-row num-switch"><span><b>Use for outreach</b><small className="muted">{(i.outreachEnabled ?? true) ? 'The AI sender may use this number.' : 'API-only: the outreach sender never picks it.'}</small></span>

@@ -16,6 +16,7 @@ from .deps import rds
 from .enrich import fetch_site_text
 from .models import Batch, Draft, Instance, Lead, Message, Notification, OutreachProfile, Tenant
 from .quota import refund, reserve_message
+from .sqlutil import rows_to_dict
 
 WARMUP = [5, 10, 15, 20, 30, 40]  # first-message cap by number age in days (last value repeats)
 STOP_RE = re.compile(r"(?<!\bbus )\b(stop(?!\s+(?:by|at|in|over|near|on)\b)|unsubscribe|remove me|do not contact|don'?t contact|not interested|no thanks|mat bhej|band kar|nahi chahiye|na bhejein|ruk jao)\b", re.I)
@@ -102,17 +103,17 @@ def warmup_cap(inst: Instance) -> int:
 
 def instance_rows(db: Session, tenant_id: str, p: OutreachProfile) -> list[dict]:
     start = local_day_start(p)
-    counts = dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "out", Message.kind == "first", Message.created_at >= start).group_by(Message.instance_id).all())
+    counts = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "out", Message.kind == "first", Message.created_at >= start).group_by(Message.instance_id).all())
     week = utcnow() - timedelta(days=7)
-    sent7 = dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "out", Message.created_at >= week).group_by(Message.instance_id).all())
-    reps7 = dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "in", Message.created_at >= week).group_by(Message.instance_id).all())
+    sent7 = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "out", Message.created_at >= week).group_by(Message.instance_id).all())
+    reps7 = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "in", Message.created_at >= week).group_by(Message.instance_id).all())
     return [{"inst": i, "cap": warmup_cap(i), "sent": counts.get(i.id, 0), "sent7d": sent7.get(i.id, 0), "replies7d": reps7.get(i.id, 0)}
             for i in db.query(Instance).filter(Instance.tenant_id == tenant_id).order_by(Instance.created_at).all()]
 
 
 def pick_instance(rows: list[dict]) -> Instance | None:
     """Only connected numbers that are switched on for outreach (API-only numbers are never used) and still under their warm-up cap."""
-    ok = [r for r in rows if r["inst"].status == "ready" and r["inst"].outreach_enabled and r["sent"] < r["cap"]]
+    ok = [r for r in rows if r["inst"].status == "ready" and r["inst"].outreach_enabled and not r["inst"].over_limit and r["sent"] < r["cap"]]
     return min(ok, key=lambda r: r["sent"])["inst"] if ok else None
 
 
@@ -152,6 +153,7 @@ async def make_first_draft(db: Session, lead: Lead, p: OutreachProfile, company:
 
 async def run_batch(db: Session, tenant_id: str, trigger: str = "manual", limit: int | None = None) -> dict:
     tenant = db.get(Tenant, tenant_id)
+    tenant_name = tenant.name if tenant else ""
     p = profile_of(db, tenant_id)
     mode = "dry" if p.dry_run else ("approval" if p.require_approval else "live")
     b = Batch(tenant_id=tenant_id, trigger=trigger, mode=mode)
@@ -163,7 +165,7 @@ async def run_batch(db: Session, tenant_id: str, trigger: str = "manual", limit:
     for lead in leads:
         b.processed += 1
         try:
-            d = await make_first_draft(db, lead, p, tenant.name, batch_id=b.id)
+            d = await make_first_draft(db, lead, p, tenant_name, batch_id=b.id)
             b.queued += 1
             if d.status == "approved":
                 pass  # the sender picks it up
@@ -235,7 +237,7 @@ async def send_draft(db: Session, d: Draft) -> str:
             return _back_to_pending(db, d, "Daily limit reached - approve again tomorrow")
         inst = pick_instance(rows)
         if not inst:
-            ready = [r for r in rows if r["inst"].status == "ready"]
+            ready = [r for r in rows if r["inst"].status == "ready" and not r["inst"].over_limit]
             enabled = [r for r in ready if r["inst"].outreach_enabled]
             if enabled:
                 msg = "No connected number has warm-up capacity left today"
@@ -251,11 +253,13 @@ async def send_draft(db: Session, d: Draft) -> str:
             pinned = next((r["inst"] for r in rows if r["inst"].id == pin_id), None)
             if pinned is None:
                 return _back_to_pending(db, d, "The number this conversation started on was removed - send from a connected number via a new message")
+            if pinned.over_limit:
+                return _back_to_pending(db, d, f"Number {pinned.phone or pinned.label} is over your plan's limit - upgrade to reply from it")
             if pinned.status != "ready":
                 return _back_to_pending(db, d, f"Number {pinned.phone or pinned.label} is disconnected - reconnect it to reply")
             inst = pinned
         else:
-            inst = next((r["inst"] for r in rows if r["inst"].status == "ready" and r["inst"].outreach_enabled), None)
+            inst = next((r["inst"] for r in rows if r["inst"].status == "ready" and r["inst"].outreach_enabled and not r["inst"].over_limit), None)
             if not inst:
                 return _back_to_pending(db, d, "No connected WhatsApp number - link one first")
 
@@ -325,6 +329,7 @@ async def handle_inbound(db: Session, inst: Instance, number: str, text: str, ch
         return None
     p = profile_of(db, tid)
     tenant = db.get(Tenant, tid)
+    tenant_name = tenant.name if tenant else ""
     db.add(Message(tenant_id=tid, lead_id=lead.id, instance_id=inst.id, chat_id=chat_id or f"{number}@c.us", direction="in", body=text, kind="reply"))
     if not lead.instance_id:
         lead.instance_id = inst.id  # the conversation lives on the number the lead wrote to
@@ -342,7 +347,7 @@ async def handle_inbound(db: Session, inst: Instance, number: str, text: str, ch
     db.commit()
     try:
         research = lead.research
-        out = await ai.write_reply(lead_dict(lead), p, tenant.name, research, _history(db, lead.id))
+        out = await ai.write_reply(lead_dict(lead), p, tenant_name, research, _history(db, lead.id))
     except ai.AIError as e:
         notify(db, tid, "needs_human", f"{lead.company} replied (AI unavailable)", text[:200], link="inbox", lead_id=lead.id)
         await send_alert(db, tid, "needs_human", f"{lead.company} replied and needs you", [f"{lead.company} wrote on {via}: \"{preview(text)}\"", "The AI could not draft an answer - open the Inbox to reply yourself."])
@@ -373,6 +378,7 @@ async def queue_followups(db: Session, tenant_id: str, p: OutreachProfile, limit
     if not p.followups_enabled:
         return 0
     tenant = db.get(Tenant, tenant_id)
+    tenant_name = tenant.name if tenant else ""
     now = utcnow()
     n = 0
     leads = db.query(Lead).filter(Lead.tenant_id == tenant_id, Lead.status == "contacted", Lead.followup_stage.in_((0, 1)), Lead.sent_at.isnot(None)).order_by(Lead.sent_at).all()
@@ -380,14 +386,14 @@ async def queue_followups(db: Session, tenant_id: str, p: OutreachProfile, limit
         if n >= limit:
             break
         days = p.followup_day1 if lead.followup_stage == 0 else p.followup_day2
-        if lead.sent_at > now - timedelta(days=days):
+        if lead.sent_at is None or lead.sent_at > now - timedelta(days=days):
             continue
         if db.query(Message.id).filter(Message.lead_id == lead.id, Message.direction == "in").first():
             continue
         if db.query(Draft.id).filter(Draft.lead_id == lead.id, Draft.kind == "followup", Draft.status.in_(OPEN_DRAFT)).first():
             continue
         try:
-            body = await ai.write_followup(lead_dict(lead), p, tenant.name, lead.research, _history(db, lead.id), lead.followup_stage + 1)
+            body = await ai.write_followup(lead_dict(lead), p, tenant_name, lead.research, _history(db, lead.id), lead.followup_stage + 1)
         except ai.AIError:
             continue
         if not body:

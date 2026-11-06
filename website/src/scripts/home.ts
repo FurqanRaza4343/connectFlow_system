@@ -73,6 +73,11 @@ function carousel() {
   track.addEventListener('keydown', (e) => { if (e.key === 'ArrowRight') next.click(); if (e.key === 'ArrowLeft') prev.click(); });
   update();
 
+  // card animations only run while their card is actually on screen (keeps scrolling smooth on phones)
+  const cards = Array.from(track.querySelectorAll<HTMLElement>('.fcard'));
+  const io = new IntersectionObserver((es) => es.forEach((e) => e.target.classList.toggle('off', !e.isIntersecting)), { root: null, rootMargin: '120px' });
+  cards.forEach((c) => io.observe(c));
+
   // mouse drag (touch already scrolls natively)
   let down = false, sx = 0, sl = 0, moved = false;
   track.addEventListener('pointerdown', (e) => { if (e.pointerType !== 'mouse') return; down = true; moved = false; sx = e.clientX; sl = track.scrollLeft; });

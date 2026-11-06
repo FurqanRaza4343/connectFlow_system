@@ -1,4 +1,5 @@
 """Approval queue for AI drafts: list, edit, regenerate, approve (queues the send), reject. Scoped to the caller's workspace."""
+from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -6,14 +7,15 @@ from sqlalchemy.orm import Session
 
 from .. import ai, outreach as og
 from ..db import get_db
-from ..deps import Ctx, need_role
+from ..deps import Ctx, need_role, TCtx
 from ..models import Draft, Instance, Lead, Tenant
+from ..sqlutil import rows_to_dict
 
 router = APIRouter(prefix="/api/drafts", tags=["drafts"])
 STATUSES = ("pending", "approved", "sending", "sent", "discarded", "failed")
 
 
-def _via(i) -> dict | None:
+def _via(i: Instance | None) -> dict[str, Any] | None:
     return {"id": i.id, "label": i.label, "phone": i.phone, "status": i.status} if i else None
 
 
@@ -24,7 +26,7 @@ def draft_out(d: Draft, lead: Lead | None, insts: dict | None = None) -> dict:
             "status": d.status, "note": d.note, "source": d.source, "needsHuman": d.needs_human, "createdAt": og.iso(d.created_at)}
 
 
-def _own(db: Session, ctx: Ctx, draft_id: str) -> Draft:
+def _own(db: Session, ctx: TCtx, draft_id: str) -> Draft:
     d = db.query(Draft).filter(Draft.id == draft_id, Draft.tenant_id == ctx.tenant.id).first()
     if not d:
         raise HTTPException(404, "draft not found")
@@ -32,7 +34,7 @@ def _own(db: Session, ctx: Ctx, draft_id: str) -> Draft:
 
 
 @router.get("")
-def list_drafts(status: str = "open", kind: str = "", page: int = Query(1, ge=1), ctx: Ctx = Depends(need_role("viewer")), db: Session = Depends(get_db)):
+def list_drafts(status: str = "open", kind: str = "", page: int = Query(1, ge=1), ctx: TCtx = Depends(need_role("viewer")), db: Session = Depends(get_db)) -> dict[str, Any]:
     q = db.query(Draft, Lead).join(Lead, Lead.id == Draft.lead_id).filter(Draft.tenant_id == ctx.tenant.id)
     if status == "open":
         q = q.filter(Draft.status.in_(("pending", "approved", "sending", "failed")))
@@ -42,13 +44,13 @@ def list_drafts(status: str = "open", kind: str = "", page: int = Query(1, ge=1)
         q = q.filter(Draft.kind == kind)
     total, size = q.count(), 30
     rows = q.order_by(Draft.needs_human.desc(), Draft.created_at.desc()).offset((page - 1) * size).limit(size).all()
-    counts = dict(db.query(Draft.status, func.count(Draft.id)).filter(Draft.tenant_id == ctx.tenant.id).group_by(Draft.status).all())
+    counts = rows_to_dict(db.query(Draft.status, func.count(Draft.id)).filter(Draft.tenant_id == ctx.tenant.id).group_by(Draft.status).all())
     insts = {i.id: i for i in db.query(Instance).filter(Instance.tenant_id == ctx.tenant.id).all()}
     return {"rows": [draft_out(d, l, insts) for d, l in rows], "total": total, "page": page, "pages": max(1, -(-total // size)), "counts": {s: counts.get(s, 0) for s in STATUSES}}
 
 
 @router.get("/queue")
-def queue(ctx: Ctx = Depends(need_role("viewer")), db: Session = Depends(get_db)):
+def queue(ctx: TCtx = Depends(need_role("viewer")), db: Session = Depends(get_db)) -> Any:
     return og.queue_state(db, ctx.tenant.id)
 
 
@@ -57,7 +59,7 @@ class BodyIn(BaseModel):
 
 
 @router.patch("/{draft_id}")
-def edit(draft_id: str, body: BodyIn, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def edit(draft_id: str, body: BodyIn, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict:
     d = _own(db, ctx, draft_id)
     if d.status not in ("pending", "failed"):
         raise HTTPException(409, "Only pending or failed drafts can be edited")
@@ -73,11 +75,13 @@ class RegenIn(BaseModel):
 
 
 @router.post("/{draft_id}/regenerate")
-async def regenerate(draft_id: str, body: RegenIn, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+async def regenerate(draft_id: str, body: RegenIn, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict:
     d = _own(db, ctx, draft_id)
     if d.status not in ("pending", "failed"):
         raise HTTPException(409, "Only pending or failed drafts can be regenerated")
     lead = db.get(Lead, d.lead_id)
+    if not lead:
+        raise HTTPException(404, "lead not found")
     p = og.profile_of(db, ctx.tenant.id)
     try:
         text = await ai.rewrite(og.lead_dict(lead), p, ctx.tenant.name, lead.research, d.body, body.instruction, kind=d.kind, incoming=d.incoming)
@@ -97,7 +101,7 @@ class IdsIn(BaseModel):
 
 
 @router.post("/approve")
-def approve(body: IdsIn, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def approve(body: IdsIn, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict[str, Any]:
     if og.profile_of(db, ctx.tenant.id).dry_run:
         raise HTTPException(409, "Dry-run is ON (Outreach > Setup). Turn it off to approve and send messages.")
     from ..config import settings as _cfg
@@ -113,14 +117,14 @@ def approve(body: IdsIn, ctx: Ctx = Depends(need_role("operator")), db: Session 
 
 
 @router.post("/cancel-sending")
-def cancel(ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def cancel(ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict[str, Any]:
     n = db.query(Draft).filter(Draft.tenant_id == ctx.tenant.id, Draft.status == "approved").update({Draft.status: "pending", Draft.note: "Sending cancelled by you"}, synchronize_session=False)
     db.commit()
     return {"reset": n}
 
 
 @router.post("/{draft_id}/discard")
-def discard(draft_id: str, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def discard(draft_id: str, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict[str, Any]:
     d = _own(db, ctx, draft_id)
     if d.status == "sending":
         raise HTTPException(409, "This message is being sent right now")

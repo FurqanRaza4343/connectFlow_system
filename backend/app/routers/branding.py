@@ -1,4 +1,5 @@
 """Workspace branding: accent colour + logo (white-label). Default = ConnectFlow green."""
+from typing import Any
 import base64
 import re
 
@@ -7,7 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import Ctx, need_role
+from ..deps import Ctx, need_role, TCtx
 from ..models import AuditLog
 
 router = APIRouter(prefix="/api", tags=["branding"])
@@ -48,7 +49,7 @@ def _valid_logo(data_url: str) -> str:
 
 
 @router.put("/branding/color")
-def set_color(body: ColorIn, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def set_color(body: ColorIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     if body.color is not None and not re.fullmatch(r"#[0-9a-fA-F]{6}", body.color):
         raise HTTPException(422, "Colour must look like #1a73e8")
     ctx.tenant.brand_color = body.color.lower() if body.color else None
@@ -58,7 +59,7 @@ def set_color(body: ColorIn, ctx: Ctx = Depends(need_role("admin")), db: Session
 
 
 @router.put("/branding/logo")
-def set_logo(body: LogoIn, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def set_logo(body: LogoIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     ctx.tenant.logo_data = _valid_logo(body.data_url)
     db.add(AuditLog(tenant_id=ctx.tenant.id, user_id=ctx.user.id, action="branding.logo", detail="set"))
     db.commit()
@@ -66,13 +67,13 @@ def set_logo(body: LogoIn, ctx: Ctx = Depends(need_role("admin")), db: Session =
 
 
 @router.delete("/branding/logo", status_code=204)
-def clear_logo(ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def clear_logo(ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> None:
     ctx.tenant.logo_data = None
     db.commit()
 
 
 @router.patch("/workspace")
-def rename(body: NameIn, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def rename(body: NameIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     ctx.tenant.name = body.name.strip()
     db.commit()
     return {"name": ctx.tenant.name}
@@ -85,7 +86,7 @@ class ThemeIn(BaseModel):
 
 
 @router.put("/branding/theme")
-def set_theme(body: ThemeIn, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def set_theme(body: ThemeIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     for v in (body.accent, body.sidebar, body.page):
         if v is not None and not re.fullmatch(r"#[0-9a-fA-F]{6}", v):
             raise HTTPException(422, "Colours must look like #1a73e8")
@@ -103,7 +104,7 @@ class WebsiteIn(BaseModel):
 
 
 @router.put("/workspace/website")
-def set_website(body: WebsiteIn, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def set_website(body: WebsiteIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     w = body.website.strip()
     if w:
         if not re.match(r"^https?://", w, re.I):

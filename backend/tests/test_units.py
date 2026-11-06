@@ -266,7 +266,7 @@ def test_reconcile_split():
 
 # ---------------------------------------------------------------- M4: multi-number + alerts
 def _row(status="ready", enabled=True, sent=0, cap=5, label="n"):
-    return {"inst": SimpleNamespace(status=status, outreach_enabled=enabled, label=label), "sent": sent, "cap": cap}
+    return {"inst": SimpleNamespace(status=status, outreach_enabled=enabled, label=label, over_limit=False), "sent": sent, "cap": cap}
 
 
 def test_pick_instance_skips_api_only_numbers():

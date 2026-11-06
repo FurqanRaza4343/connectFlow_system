@@ -11,6 +11,7 @@ and still-open drafts (pending/approved). The WhatsApp session itself cannot be 
 import argparse
 import sqlite3
 from datetime import datetime, timezone
+from typing import Any
 
 from ..db import SessionLocal
 from ..models import Draft, Lead, LeadList, Message, Tenant
@@ -42,7 +43,8 @@ def main() -> None:
         have_wa = {w for (w,) in db.query(Lead.whatsapp).filter(Lead.tenant_id == t.id, Lead.whatsapp != "").all()}
         have_co = {c.lower() for (c,) in db.query(Lead.company).filter(Lead.tenant_id == t.id).all()}
 
-        lists, id_map = {}, {}
+        lists: dict[Any, Any] = {}
+        id_map: dict[Any, Any] = {}
         for r in src.execute("select * from lead_lists"):
             lists[r["id"]] = LeadList(tenant_id=t.id, name=f"{r['name']} (legacy)", source="csv", created_at=ts(r["imported_at"]) or datetime.now(timezone.utc))
         n_leads = n_skip = 0
@@ -80,15 +82,15 @@ def main() -> None:
 
         n_msg = n_draft = 0
         for r in src.execute("select * from messages order by id"):
-            lead = by_wa.get(r["lead_key"])
-            if not lead:
+            found = by_wa.get(r["lead_key"])
+            if not found:
                 continue
             n_msg += 1
             if a.apply:
-                db.add(Message(tenant_id=t.id, lead_id=lead.id, chat_id=r["chat_id"] or "", direction=r["direction"], body=r["body"], kind=r["kind"] if r["kind"] in ("first", "followup", "reply") else "first", created_at=ts(r["created_at"]) or datetime.now(timezone.utc)))
+                db.add(Message(tenant_id=t.id, lead_id=found.id, chat_id=r["chat_id"] or "", direction=r["direction"], body=r["body"], kind=r["kind"] if r["kind"] in ("first", "followup", "reply") else "first", created_at=ts(r["created_at"]) or datetime.now(timezone.utc)))
         for r in src.execute("select * from drafts where status in ('pending','approved') order by id"):
-            lead = by_wa.get(r["lead_key"])
-            if not lead:
+            found = by_wa.get(r["lead_key"])
+            if not found:
                 continue
             n_draft += 1
             if a.apply:

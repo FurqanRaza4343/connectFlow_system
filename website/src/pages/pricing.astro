@@ -41,7 +41,7 @@ const groups: Array<{ g: string; rows: Row[] }> = [
   ] },
 ];
 const billing = [
-  { q: 'How does billing work?', a: 'Plans are billed monthly per workspace, not per message. The Trial needs no card. We are still finalising payment methods: card payments for international customers and local payment options for Pakistan are planned before general availability.' },
+  { q: 'How does billing work?', a: 'Plans are billed monthly per workspace, not per message. The Trial (1 WhatsApp number) needs no card. Paid plans are charged monthly in US dollars through Stripe, which handles the card details: we never see or store them. Bank-transfer or invoice payment is available on request, and PKR prices are indicative.' },
   { q: 'Can I switch plans or cancel?', a: 'Yes. You can upgrade at any time and the new limits apply immediately. You can downgrade or cancel at the end of a billing period, and you can export your leads and conversations before you leave.' },
   { q: 'What happens if I hit my daily limit?', a: 'Further sends are rejected with a clear “daily limit reached” message until 00:00 UTC. Nothing is lost: queued drafts stay in the queue, and the dashboard shows how much of today’s limit you have used.' },
   { q: 'Do you offer yearly billing?', a: 'Yearly billing with a discount is planned. Until it is available, plans are monthly. Pricing shown is a launch estimate and may change before general availability.' },

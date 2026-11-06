@@ -46,7 +46,7 @@ def require_admin_password() -> str:
 def require_mailpit():
     """Email-link checks read Mailpit, so they only make sense when mail is NOT routed to Resend."""
     if api_env("RESEND_API_KEY").get("RESEND_API_KEY"):
-        skip("RESEND_API_KEY is set: mail goes to Resend, not Mailpit")
+        skip("RESEND_API_KEY is set: mail goes to Resend, not Mailpit (start the dev profile with an empty key: make up-dev)")
 
 
 def require_fake_engine():

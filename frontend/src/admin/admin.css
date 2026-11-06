@@ -70,3 +70,14 @@ html { color-scheme: dark; overscroll-behavior: none; }
 .ad-theme.on { border-color:var(--ac); box-shadow:0 0 0 1px var(--ac); } .ad-theme .mini { display:grid; grid-template-columns:34% 1fr; height:48px; border-radius:7px; overflow:hidden; border:1px solid #0003; }
 .ad-theme .mini i { display:block; } .ad-theme .mini b { display:block; position:relative; } .ad-theme .mini b::after { content:""; position:absolute; left:12%; top:32%; width:44%; height:12px; border-radius:4px; background:var(--a); }
 .ad-pick { display:flex; gap:18px; flex-wrap:wrap; align-items:center; } .ad-pick label { display:flex; gap:8px; align-items:center; } .ad-pick input[type=color] { width:44px; height:32px; padding:2px; border-radius:7px; border:1px solid var(--line); background:var(--input); }
+
+/* two-step verification (shared by the customer app and the admin console) */
+.mfa-form { display: grid; gap: 12px; }
+.mfa-form h1 { font-size: 20px; margin: 0; }
+.mfa-code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .18em; font-size: 18px; text-align: center; }
+.mfa-qr { background: #fff; padding: 10px; border-radius: 12px; width: 220px; max-width: 100%; margin: 4px auto; line-height: 0; }
+.mfa-qr svg { width: 100%; height: auto; display: block; }
+.mfa-key { display: block; margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, currentColor 7%, transparent); word-break: break-all; font-size: 13px; letter-spacing: .06em; user-select: all; }
+.mfa-codes { list-style: none; margin: 0; padding: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; border-radius: 10px; background: color-mix(in srgb, currentColor 7%, transparent); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; letter-spacing: .06em; }
+.mfa-links { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; }
+.turnstile { min-height: 65px; }

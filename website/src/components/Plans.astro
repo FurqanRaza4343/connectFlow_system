@@ -15,8 +15,8 @@ const APP = import.meta.env.PUBLIC_APP_URL || 'http://app.connectflow.localhost:
       <p class="muted" style="margin-top:6px">{p.blurb}</p>
       <div class="price"><span class="cur" data-cur-label>USD</span><span data-price data-usd={p.usd} data-pkr={p.pkr}>{p.usd}</span><small> / month</small></div>
       <ul>{p.items.map((i) => <li>{i}</li>)}</ul>
-      <a class={`btn ${p.pop ? 'btn-primary' : 'btn-ghost'}`} href={`${APP}/#signup`}>{p.cta} <span class="arr">→</span></a>
+      <a class={`btn ${p.pop ? 'btn-primary' : 'btn-ghost'}`} href={p.id === 'trial' ? `${APP}/#signup` : `${APP}/?plan=${p.id}#signup`}>{p.cta} <span class="arr">→</span></a>
     </div>
   ))}
 </div>
-<p class="note" style="text-align:center;margin-top:28px">Prices shown are launch estimates and may change before general availability. No credit card needed for the trial.</p>
+<p class="note" style="text-align:center;margin-top:28px">Paid plans are billed monthly in US dollars by Stripe; PKR prices are indicative. The free Trial includes 1 WhatsApp number and needs no credit card.</p>

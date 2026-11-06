@@ -8,11 +8,13 @@ import hashlib
 import hmac
 import logging
 import time
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import select
 
+from . import crypto
 from .db import SessionLocal
 from .models import WebhookDelivery, WebhookEndpoint
 from .netguard import UnsafeUrl, assert_public_url
@@ -54,11 +56,21 @@ async def deliver(delivery_id: str) -> None:
             d.status, d.last_error = "failed", "endpoint disabled or deleted"
             db.commit()
             return
+        try:
+            secret = crypto.reveal(ep.secret)
+        except crypto.DecryptError:
+            d.status, d.last_error = "failed", "signing secret cannot be decrypted (check ENCRYPTION_KEY); rotate the endpoint secret"
+            db.commit()
+            log.error("delivery %s: endpoint %s secret cannot be decrypted", d.id[:8], ep.id[:8])
+            return
+        upgraded = crypto.upgrade_if_plain(ep.secret)  # legacy plaintext row: encrypt it now (the start-up backfill normally got it already)
+        if upgraded:
+            ep.secret = upgraded
         ts = str(int(time.time()))
         headers = {
             "Content-Type": "application/json", "User-Agent": "ConnectFlow-Webhooks/1.0",
             "X-ConnectFlow-Event": d.event, "X-ConnectFlow-Delivery": d.id, "X-ConnectFlow-Timestamp": ts,
-            "X-ConnectFlow-Signature": sign(ep.secret, ts, d.payload),
+            "X-ConnectFlow-Signature": sign(secret, ts, d.payload),
         }
         status_code, error = None, ""
         try:
@@ -86,13 +98,41 @@ async def deliver(delivery_id: str) -> None:
         log.info("delivery %s %s attempt %s -> %s %s", d.id[:8], d.event, d.attempts, d.status, error or status_code)
 
 
+def _record_crash(delivery_id: str) -> None:
+    """A delivery that crashed the handler (malformed payload, bad row ...) must not be retried forever: count it as an attempt."""
+    try:
+        with SessionLocal() as db:
+            d = db.get(WebhookDelivery, delivery_id)
+            if not d or d.status not in ("pending", "retrying"):
+                return
+            d.attempts += 1
+            d.last_error = "internal error while delivering"
+            if d.attempts >= MAX_ATTEMPTS:
+                d.status = "failed"
+            else:
+                d.status = "retrying"
+                d.next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=BACKOFF[d.attempts - 1])
+            db.commit()
+    except Exception:  # noqa: BLE001
+        log.exception("could not record the crash of delivery %s", delivery_id[:8])
+
+
+async def safe_deliver(delivery_id: str) -> None:
+    """One bad delivery can never take down the loop or its siblings."""
+    try:
+        await deliver(delivery_id)
+    except Exception:  # noqa: BLE001
+        log.exception("delivery %s crashed", delivery_id[:8])
+        await asyncio.to_thread(_record_crash, delivery_id)
+
+
 async def webhook_loop() -> None:
     log.info("webhook worker started")
     while True:
         try:
             ids = await asyncio.to_thread(claim)
             if ids:
-                await asyncio.gather(*(deliver(i) for i in ids))
+                await asyncio.gather(*(safe_deliver(i) for i in ids))
                 continue
         except Exception:  # noqa: BLE001  (never die: log and keep polling)
             log.exception("worker loop error")
@@ -113,12 +153,38 @@ async def heartbeat_loop() -> None:
         await asyncio.sleep(15)
 
 
+async def billing_loop() -> None:
+    """Hourly: past-due subscriptions whose 7-day grace has ended fall back to the Trial plan."""
+    from . import stripe_billing
+
+    while True:
+        try:
+            with SessionLocal() as db:
+                n = stripe_billing.expire_grace(db)
+            if n:
+                log.info("billing: %d workspace(s) moved to Trial after the grace period", n)
+        except Exception:  # noqa: BLE001
+            log.exception("billing loop failed")
+        await asyncio.sleep(3600)
+
+
+async def _supervise(name: str, fn: Callable[[], Awaitable[None]]) -> None:
+    """Restart a background loop if it ever crashes out (each loop already guards its own iterations)."""
+    while True:
+        try:
+            await fn()
+        except Exception:  # noqa: BLE001
+            log.exception("%s loop crashed, restarting in 5 s", name)
+            await asyncio.sleep(5)
+
+
 async def main() -> None:
     from .outreach_worker import run as outreach_run  # imported here: the API image does not need it at import time
     from .reaper import reaper_loop
     from .retention import retention_loop
 
-    await asyncio.gather(webhook_loop(), outreach_run(), reaper_loop(), retention_loop(), heartbeat_loop())
+    loops = [("webhooks", webhook_loop), ("outreach", outreach_run), ("reaper", reaper_loop), ("retention", retention_loop), ("heartbeat", heartbeat_loop), ("billing", billing_loop)]
+    await asyncio.gather(*(_supervise(name, fn) for name, fn in loops))
 
 
 if __name__ == "__main__":

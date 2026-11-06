@@ -1,3 +1,4 @@
+from typing import Any
 import asyncio
 import time
 from datetime import datetime, timezone
@@ -7,16 +8,20 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
 
+from . import abuse
 from .config import settings
 from .db import SessionLocal, engine
 from .models import Membership, Plan, Tenant, User
-from .routers import admin, admin_ext, admin_ops, admin_security, auth, billing, branding, google, instances, internal, drafts, keys, leads, outreach, team, v1, webhooks
+from .routers import account, twofactor, admin, admin_ext, admin_ops, admin_security, auth, billing, branding, google, instances, internal, drafts, keys, leads, outreach, team, v1, webhooks
 from .security import hash_password
 from .telemetry import sweeper, v1_guard
+from .tools.reencrypt import backfill
 
 app = FastAPI(title="ConnectFlow API", docs_url="/api/docs", openapi_url="/api/openapi.json")
 admin_ops.register(app)
 app.include_router(auth.router)
+app.include_router(twofactor.router)
+app.include_router(account.router)
 app.include_router(google.router)
 app.include_router(instances.router)
 app.include_router(admin.router)
@@ -34,6 +39,7 @@ app.include_router(drafts.router)
 app.include_router(outreach.router)
 
 app.middleware("http")(v1_guard)  # pre-auth per-IP limiter + 401-storm block for /v1
+app.middleware("http")(abuse.trial_guard)  # Trial workspaces: at most 3 new WhatsApp sessions per hour
 
 PLANS = [  # (id, name, numbers, messages/day, team members, USD/month, PKR/month, AI calls/day) -- launch estimates, editable in the database
     ("trial", "Trial", 1, 50, 1, 0, 0, 20),
@@ -42,7 +48,7 @@ PLANS = [  # (id, name, numbers, messages/day, team members, USD/month, PKR/mont
 ]
 
 
-def run_migrations():
+def run_migrations() -> None:
     """Bring the database to the latest Alembic revision. A database created before Alembic existed
     (tables present, no alembic_version) is first stamped as the 0001 baseline."""
     cfg = Config("alembic.ini")
@@ -53,7 +59,7 @@ def run_migrations():
 
 
 @app.on_event("startup")
-def startup():
+def startup() -> None:
     for _ in range(30):  # wait for postgres
         try:
             with engine.connect() as c:
@@ -63,6 +69,7 @@ def startup():
             time.sleep(2)
     run_migrations()
     with SessionLocal() as db:
+        backfill(db)  # encrypt any webhook secret that is still plaintext (written before at-rest encryption)
         for pid, name, inst, msgs, members, usd, pkr, ai_cap in PLANS:
             p = db.get(Plan, pid)
             if not p:
@@ -82,10 +89,10 @@ _bg: list = []
 
 
 @app.on_event("startup")
-async def start_telemetry():
+async def start_telemetry() -> None:
     _bg.append(asyncio.create_task(sweeper()))  # flushes key-usage counters to Postgres every 60 s
 
 
 @app.get("/api/health")
-def health():
+def health() -> dict[str, Any]:
     return {"ok": True}

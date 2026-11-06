@@ -1,4 +1,5 @@
 """Lead lists and leads: CSV import with dedupe, filters, status changes, thread view, export. All queries are filtered by tenant_id."""
+from typing import Any
 import csv
 import io
 from datetime import datetime, timezone
@@ -11,11 +12,12 @@ from sqlalchemy.orm import Session
 
 from .. import ai, outreach as og
 from ..db import get_db
-from ..deps import Ctx, need_role
+from ..deps import Ctx, need_role, TCtx
 from ..leadtools import FIELDS, csv_safe, normalize_phone, parse_csv, suggest_mapping
 from ..alerts import validate_extras
 from ..models import AuditLog, Draft, Instance, Lead, LeadList, Message, OutreachProfile
 from .drafts import draft_out
+from ..sqlutil import rows_to_dict
 
 router = APIRouter(prefix="/api", tags=["leads"])
 STATUSES = ("new", "queued", "contacted", "replied", "stop", "no_whatsapp", "failed", "hold", "verify")
@@ -43,7 +45,7 @@ def _out(l: Lead, insts: dict | None = None) -> dict:
     }
 
 
-def _own(db: Session, ctx: Ctx, lead_id: str) -> Lead:
+def _own(db: Session, ctx: TCtx, lead_id: str) -> Lead:
     l = db.query(Lead).filter(Lead.id == lead_id, Lead.tenant_id == ctx.tenant.id).first()
     if not l:
         raise HTTPException(404, "lead not found")
@@ -52,8 +54,8 @@ def _own(db: Session, ctx: Ctx, lead_id: str) -> Lead:
 
 # ------------------------------------------------------------------ lists
 @router.get("/lead-lists")
-def lists(ctx: Ctx = Depends(need_role("viewer")), db: Session = Depends(get_db)):
-    counts = dict(db.query(Lead.list_id, func.count(Lead.id)).filter(Lead.tenant_id == ctx.tenant.id).group_by(Lead.list_id).all())
+def lists(ctx: TCtx = Depends(need_role("viewer")), db: Session = Depends(get_db)) -> list[dict[str, Any]]:
+    counts = rows_to_dict(db.query(Lead.list_id, func.count(Lead.id)).filter(Lead.tenant_id == ctx.tenant.id).group_by(Lead.list_id).all())
     rows = db.query(LeadList).filter(LeadList.tenant_id == ctx.tenant.id).order_by(LeadList.created_at.desc()).all()
     return [{"id": x.id, "name": x.name, "source": x.source, "count": counts.get(x.id, 0), "createdAt": x.created_at.isoformat()} for x in rows]
 
@@ -63,7 +65,7 @@ class NameIn(BaseModel):
 
 
 @router.patch("/lead-lists/{list_id}")
-def rename_list(list_id: str, body: NameIn, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def rename_list(list_id: str, body: NameIn, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict[str, Any]:
     x = db.query(LeadList).filter(LeadList.id == list_id, LeadList.tenant_id == ctx.tenant.id).first()
     if not x:
         raise HTTPException(404, "list not found")
@@ -73,7 +75,7 @@ def rename_list(list_id: str, body: NameIn, ctx: Ctx = Depends(need_role("operat
 
 
 @router.delete("/lead-lists/{list_id}", status_code=204)
-def delete_list(list_id: str, delete_leads: bool = False, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def delete_list(list_id: str, delete_leads: bool = False, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> None:
     x = db.query(LeadList).filter(LeadList.id == list_id, LeadList.tenant_id == ctx.tenant.id).first()
     if not x:
         raise HTTPException(404, "list not found")
@@ -87,8 +89,8 @@ def delete_list(list_id: str, delete_leads: bool = False, ctx: Ctx = Depends(nee
 @router.get("/leads")
 def list_leads(
     q: str = "", status: str = "", list_id: str = "", has_number: str = "", instance_id: str = "", page: int = Query(1, ge=1), page_size: int = Query(50, ge=10, le=200),
-    ctx: Ctx = Depends(need_role("viewer")), db: Session = Depends(get_db),
-):
+    ctx: TCtx = Depends(need_role("viewer")), db: Session = Depends(get_db),
+) -> dict[str, Any]:
     base = db.query(Lead).filter(Lead.tenant_id == ctx.tenant.id)
     if status:
         base = base.filter(Lead.status == status)
@@ -105,7 +107,7 @@ def list_leads(
         base = base.filter(or_(Lead.company.ilike(like), Lead.contact_name.ilike(like), Lead.whatsapp.ilike(like), Lead.website.ilike(like), Lead.email.ilike(like), Lead.address.ilike(like)))
     total = base.count()
     rows = base.order_by(Lead.created_at.desc(), Lead.id).offset((page - 1) * page_size).limit(page_size).all()
-    counts = dict(db.query(Lead.status, func.count(Lead.id)).filter(Lead.tenant_id == ctx.tenant.id).group_by(Lead.status).all())
+    counts = rows_to_dict(db.query(Lead.status, func.count(Lead.id)).filter(Lead.tenant_id == ctx.tenant.id).group_by(Lead.status).all())
     insts = {i.id: i for i in db.query(Instance).filter(Instance.tenant_id == ctx.tenant.id).all()}
     return {"rows": [_out(l, insts) for l in rows], "total": total, "page": page, "pages": max(1, -(-total // page_size)), "counts": counts, "withNumber": db.query(func.count(Lead.id)).filter(Lead.tenant_id == ctx.tenant.id, Lead.whatsapp != "").scalar()}
 
@@ -154,7 +156,7 @@ def _duplicate(db: Session, tenant_id: str, whatsapp: str, company: str, address
 
 
 @router.post("/leads", status_code=201)
-def create_lead(body: LeadIn, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def create_lead(body: LeadIn, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict:
     region = _profile(db, ctx.tenant.id).default_country
     wa, country = normalize_phone(body.phone_raw, region)
     if _duplicate(db, ctx.tenant.id, wa, body.company.strip(), body.address.strip()):
@@ -167,7 +169,7 @@ def create_lead(body: LeadIn, ctx: Ctx = Depends(need_role("operator")), db: Ses
 
 
 @router.patch("/leads/{lead_id}")
-def patch_lead(lead_id: str, body: LeadPatch, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def patch_lead(lead_id: str, body: LeadPatch, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict:
     l = _own(db, ctx, lead_id)
     data = body.model_dump(exclude_unset=True)
     if "status" in data:
@@ -188,7 +190,7 @@ def patch_lead(lead_id: str, body: LeadPatch, ctx: Ctx = Depends(need_role("oper
 
 
 @router.delete("/leads/{lead_id}", status_code=204)
-def delete_lead(lead_id: str, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def delete_lead(lead_id: str, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> None:
     db.delete(_own(db, ctx, lead_id))
     db.commit()
 
@@ -199,7 +201,7 @@ class BulkIn(BaseModel):
 
 
 @router.post("/leads/bulk")
-def bulk(body: BulkIn, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def bulk(body: BulkIn, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict[str, Any]:
     q = db.query(Lead).filter(Lead.tenant_id == ctx.tenant.id, Lead.id.in_(body.ids))
     n = 0
     if body.action == "delete":
@@ -226,7 +228,7 @@ class ImportIn(CsvIn):
 
 
 @router.post("/leads/import/analyze")
-def analyze(body: CsvIn, ctx: Ctx = Depends(need_role("operator"))):
+def analyze(body: CsvIn, ctx: TCtx = Depends(need_role("operator"))) -> dict[str, Any]:
     try:
         headers, rows = parse_csv(body.csv)
     except ValueError as e:
@@ -235,7 +237,7 @@ def analyze(body: CsvIn, ctx: Ctx = Depends(need_role("operator"))):
 
 
 @router.post("/leads/import")
-def do_import(body: ImportIn, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def do_import(body: ImportIn, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict[str, Any]:
     try:
         headers, rows = parse_csv(body.csv)
     except ValueError as e:
@@ -285,7 +287,7 @@ def do_import(body: ImportIn, ctx: Ctx = Depends(need_role("operator")), db: Ses
 
 
 @router.get("/leads-export.csv")
-def export(status: str = "", list_id: str = "", ctx: Ctx = Depends(need_role("viewer")), db: Session = Depends(get_db)):
+def export(status: str = "", list_id: str = "", ctx: TCtx = Depends(need_role("viewer")), db: Session = Depends(get_db)) -> Response:
     q = db.query(Lead).filter(Lead.tenant_id == ctx.tenant.id)
     if status:
         q = q.filter(Lead.status == status)
@@ -337,7 +339,7 @@ def _prof_out(p: OutreachProfile) -> dict:
 
 
 @router.get("/outreach/profile")
-def get_profile(ctx: Ctx = Depends(need_role("viewer")), db: Session = Depends(get_db)):
+def get_profile(ctx: TCtx = Depends(need_role("viewer")), db: Session = Depends(get_db)) -> Any:
     p = _profile(db, ctx.tenant.id)
     out = _prof_out(p)
     out["company_name"] = out["company_name"] or ctx.tenant.name
@@ -345,7 +347,7 @@ def get_profile(ctx: Ctx = Depends(need_role("viewer")), db: Session = Depends(g
 
 
 @router.put("/outreach/profile")
-def put_profile(body: ProfileIn, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def put_profile(body: ProfileIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict:
     if body.tone not in ("friendly", "formal", "short"):
         raise HTTPException(422, "tone must be friendly, formal or short")
     if body.delay_min > body.delay_max:
@@ -374,7 +376,7 @@ def put_profile(body: ProfileIn, ctx: Ctx = Depends(need_role("admin")), db: Ses
 
 # ------------------------------------------------------------------ M3: research / draft / thread / reply / enrich
 @router.post("/leads/enrich", status_code=202)
-def enrich_many(body: dict | None = None, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def enrich_many(body: dict | None = None, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict[str, Any]:
     body = body or {}
     q = db.query(Lead.id).filter(Lead.tenant_id == ctx.tenant.id)
     if body.get("ids"):
@@ -387,12 +389,12 @@ def enrich_many(body: dict | None = None, ctx: Ctx = Depends(need_role("operator
 
 
 @router.get("/leads/enrich/status")
-def enrich_status(ctx: Ctx = Depends(need_role("viewer"))):
+def enrich_status(ctx: TCtx = Depends(need_role("viewer"))) -> Any:
     return og.enrich_status(ctx.tenant.id)
 
 
 @router.post("/leads/{lead_id}/research")
-async def research_now(lead_id: str, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+async def research_now(lead_id: str, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict:
     from ..enrich import enrich_lead
     l = _own(db, ctx, lead_id)
     p = _profile(db, ctx.tenant.id)
@@ -402,7 +404,7 @@ async def research_now(lead_id: str, ctx: Ctx = Depends(need_role("operator")), 
 
 
 @router.post("/leads/{lead_id}/draft", status_code=201)
-async def draft_now(lead_id: str, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+async def draft_now(lead_id: str, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> Any:
     l = _own(db, ctx, lead_id)
     if not l.whatsapp:
         raise HTTPException(409, "This lead has no valid WhatsApp number")
@@ -418,12 +420,12 @@ async def draft_now(lead_id: str, ctx: Ctx = Depends(need_role("operator")), db:
 
 
 @router.get("/leads/{lead_id}/thread")
-def thread(lead_id: str, ctx: Ctx = Depends(need_role("viewer")), db: Session = Depends(get_db)):
+def thread(lead_id: str, ctx: TCtx = Depends(need_role("viewer")), db: Session = Depends(get_db)) -> dict[str, Any]:
     l = _own(db, ctx, lead_id)
     msgs = db.query(Message).filter(Message.lead_id == l.id, Message.tenant_id == ctx.tenant.id).order_by(Message.created_at).all()
     drafts = db.query(Draft).filter(Draft.lead_id == l.id, Draft.tenant_id == ctx.tenant.id).order_by(Draft.created_at).all()
     insts = {i.id: i for i in db.query(Instance).filter(Instance.tenant_id == ctx.tenant.id).all()}
-    i = insts.get(l.instance_id)
+    i = insts.get(l.instance_id or "")
     return {"messages": [{"id": m.id, "direction": m.direction, "body": m.body, "kind": m.kind, "at": m.created_at.isoformat(), "instanceId": m.instance_id} for m in msgs],
             "drafts": [draft_out(d, l, insts) for d in drafts], "via": {"id": i.id, "label": i.label, "phone": i.phone, "status": i.status} if i else None}
 
@@ -433,7 +435,7 @@ class ReplyIn(BaseModel):
 
 
 @router.post("/leads/{lead_id}/reply", status_code=201)
-def manual_reply(lead_id: str, body: ReplyIn, ctx: Ctx = Depends(need_role("operator")), db: Session = Depends(get_db)):
+def manual_reply(lead_id: str, body: ReplyIn, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> Any:
     l = _own(db, ctx, lead_id)
     if _profile(db, ctx.tenant.id).dry_run:
         raise HTTPException(409, "Dry-run is ON (Outreach > Setup). Turn it off to send messages.")

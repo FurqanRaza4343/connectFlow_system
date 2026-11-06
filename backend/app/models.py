@@ -37,8 +37,16 @@ class Tenant(Base):
     logo_data: Mapped[str | None] = mapped_column(Text, nullable=True)  # data URL (png/jpeg/webp/svg), <= 256 KB
     sidebar_color: Mapped[str | None] = mapped_column(String(7), nullable=True)  # #rrggbb, null = default
     page_color: Mapped[str | None] = mapped_column(String(7), nullable=True)  # #rrggbb, null = default
+    deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # owner asked to delete the workspace; an admin acts manually
     website_url: Mapped[str] = mapped_column(String(300), default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # Stripe subscription state (all empty while the workspace has never subscribed)
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    subscription_status: Mapped[str] = mapped_column(String(24), default="", server_default="")  # active | trialing | past_due | canceled | ""
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    past_due_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # start of the 7-day grace after a failed payment
     plan: Mapped[Plan] = relationship(lazy="joined")
 
 
@@ -54,6 +62,10 @@ class User(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     google_sub: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     avatar_url: Mapped[str] = mapped_column(String(500), default="")
+    totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)  # enc1:... (app/crypto.py); pending enrolment while totp_enabled_at is null
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    totp_last_step: Mapped[int | None] = mapped_column(Integer, nullable=True)  # last accepted 30 s step: a code can never be used twice
+    recovery_codes: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'::json"))  # keyed hashes of the unused single-use recovery codes
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
@@ -80,7 +92,17 @@ class Instance(Base):
     phone: Mapped[str] = mapped_column(String(32), default="")
     status: Mapped[str] = mapped_column(String(24), default="created")
     outreach_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")  # False = API-only number, never used by the outreach sender
+    over_limit: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")  # plan was downgraded below the number count: kept, but cannot send
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StripeEvent(Base):
+    """Every processed Stripe webhook event id, so a retried delivery is acknowledged but never applied twice."""
+
+    __tablename__ = "stripe_events"
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    type: Mapped[str] = mapped_column(String(80))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
 
 
 class AuditLog(Base):
@@ -131,7 +153,7 @@ class WebhookEndpoint(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     url: Mapped[str] = mapped_column(String(500))
-    secret: Mapped[str] = mapped_column(String(80))  # signs every delivery; shown to the customer once
+    secret: Mapped[str] = mapped_column(Text)  # signs every delivery; stored encrypted (enc1:...), shown to the customer once
     events: Mapped[str] = mapped_column(String(200), default="message.received,instance.status")
     description: Mapped[str] = mapped_column(String(120), default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)

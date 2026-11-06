@@ -35,7 +35,8 @@ def suggest_mapping(headers: list[str]) -> dict[str, str | None]:
         for alias in aliases:  # earlier alias = stronger match
             hit = next((h for h in headers if _key(h) == alias and out[h] is None), None)
             if hit and field not in taken:
-                out[hit], _ = field, taken.add(field)
+                out[hit] = field
+                taken.add(field)
                 break
     # a second phone-like column ("Phone (raw)" next to "WhatsApp Number") is a fallback source: the importer uses the first non-empty one
     for h in headers:

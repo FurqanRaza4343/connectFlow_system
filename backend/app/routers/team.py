@@ -1,4 +1,5 @@
 """Workspace members and invitations (owner/admin/operator/viewer) with seat limits from the plan."""
+from typing import Any
 from datetime import datetime, timedelta, timezone
 from html import escape
 
@@ -6,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
+from .. import abuse, mfa
 from ..config import settings
 from ..db import get_db
-from ..deps import Ctx, ROLE_RANK, csrf_guard, need_role
+from ..deps import Ctx, ROLE_RANK, csrf_guard, need_role, TCtx
 from ..mailer import layout, send_email
 from ..models import AuditLog, Invite, Membership, Tenant, User
 from ..security import hash_password
@@ -35,7 +37,7 @@ class AcceptIn(BaseModel):
 
 
 @router.get("")
-def team(ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def team(ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     members = db.query(Membership, User).join(User, User.id == Membership.user_id).filter(Membership.tenant_id == ctx.tenant.id).order_by(Membership.id).all()
     now = datetime.now(timezone.utc)
     invites = db.query(Invite).filter(Invite.tenant_id == ctx.tenant.id, Invite.accepted_at.is_(None), Invite.expires_at > now).order_by(Invite.created_at.desc()).all()
@@ -47,12 +49,13 @@ def team(ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
 
 
 @router.post("/invites", status_code=201)
-async def invite(body: InviteIn, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+async def invite(body: InviteIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> dict[str, Any]:
     if body.role not in INVITE_ROLES:
         raise HTTPException(422, "role must be admin, operator or viewer")
     if body.role == "admin" and ctx.role != "owner":
         raise HTTPException(403, "Only the owner can invite admins")
     email = body.email.lower()
+    abuse.check_email_allowed(email)
     now = datetime.now(timezone.utc)
     used = db.query(Membership).filter(Membership.tenant_id == ctx.tenant.id).count() + db.query(Invite).filter(
         Invite.tenant_id == ctx.tenant.id, Invite.accepted_at.is_(None), Invite.expires_at > now).count()
@@ -74,7 +77,7 @@ async def invite(body: InviteIn, ctx: Ctx = Depends(need_role("admin")), db: Ses
 
 
 @router.delete("/invites/{invite_id}", status_code=204)
-def revoke_invite(invite_id: str, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def revoke_invite(invite_id: str, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> None:
     i = db.query(Invite).filter(Invite.id == invite_id, Invite.tenant_id == ctx.tenant.id).first()
     if not i:
         raise HTTPException(404, "invite not found")
@@ -83,7 +86,7 @@ def revoke_invite(invite_id: str, ctx: Ctx = Depends(need_role("admin")), db: Se
 
 
 @router.patch("/members/{membership_id}")
-def change_role(membership_id: str, body: RoleIn, ctx: Ctx = Depends(need_role("owner")), db: Session = Depends(get_db)):
+def change_role(membership_id: str, body: RoleIn, ctx: TCtx = Depends(need_role("owner")), db: Session = Depends(get_db)) -> dict[str, Any]:
     m = db.query(Membership).filter(Membership.id == membership_id, Membership.tenant_id == ctx.tenant.id).first()
     if not m:
         raise HTTPException(404, "member not found")
@@ -96,7 +99,7 @@ def change_role(membership_id: str, body: RoleIn, ctx: Ctx = Depends(need_role("
 
 
 @router.delete("/members/{membership_id}", status_code=204)
-def remove_member(membership_id: str, ctx: Ctx = Depends(need_role("admin")), db: Session = Depends(get_db)):
+def remove_member(membership_id: str, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> None:
     m = db.query(Membership).filter(Membership.id == membership_id, Membership.tenant_id == ctx.tenant.id).first()
     if not m:
         raise HTTPException(404, "member not found")
@@ -118,7 +121,7 @@ def _live_invite(db: Session, token: str) -> Invite:
 
 
 @router.get("/invites/preview")
-def preview(token: str, db: Session = Depends(get_db)):
+def preview(token: str, db: Session = Depends(get_db)) -> dict[str, Any]:
     i = _live_invite(db, token)
     t = db.get(Tenant, i.tenant_id)
     exists = db.query(User).filter(User.email == i.email).first() is not None
@@ -126,7 +129,7 @@ def preview(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/invites/accept")
-def accept(body: AcceptIn, response: Response, db: Session = Depends(get_db), _: None = Depends(csrf_guard)):
+def accept(body: AcceptIn, response: Response, db: Session = Depends(get_db), _: None = Depends(csrf_guard)) -> Any:
     i = _live_invite(db, body.token)
     user = db.query(User).filter(User.email == i.email).first()
     if user:
@@ -135,6 +138,7 @@ def accept(body: AcceptIn, response: Response, db: Session = Depends(get_db), _:
     else:
         if len(body.password) < 10:
             raise HTTPException(422, "Choose a password with at least 10 characters")
+        abuse.check_email_allowed(i.email)
         user = User(email=i.email, name=body.name.strip(), password_hash=hash_password(body.password), email_verified_at=datetime.now(timezone.utc))
         db.add(user)
         db.flush()
@@ -143,6 +147,9 @@ def accept(body: AcceptIn, response: Response, db: Session = Depends(get_db), _:
     i.accepted_at = datetime.now(timezone.utc)
     db.add(AuditLog(tenant_id=i.tenant_id, user_id=user.id, action="team.join", detail=i.email))
     db.commit()
+    if user.totp_enabled_at:  # an existing account with two-factor on still has to prove the second factor: no session from an invite link alone
+        token, _jti = mfa.issue_mfa_token(user.id)
+        return {"mfaRequired": True, "mfaToken": token, "joined": True}
     _set_cookie(response, user.id)
     from ..deps import Ctx as _Ctx
     return _me(_Ctx(user=user, tenant=db.get(Tenant, i.tenant_id), role=i.role))

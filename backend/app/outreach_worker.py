@@ -9,6 +9,7 @@ import logging
 import random
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from . import outreach as og
 from .db import SessionLocal
@@ -19,31 +20,44 @@ from .models import Draft, Lead
 log = logging.getLogger("outreach")
 
 
+async def _send_one(db: Session, tid: str) -> None:
+    """One paced send for one workspace. Raises on unexpected errors; the caller isolates them per workspace."""
+    p = og.profile_of(db, tid)
+    if p.dry_run:
+        return  # dry-run: nothing leaves, even if something was approved earlier
+    key = f"og:gap:{tid}"
+    if not rds.set(key, "1", nx=True, ex=600):  # lock + gap in one key: busy or still waiting for the human-like pause
+        return
+    d = og.claim_next(db, tid)
+    if not d:
+        rds.delete(key)
+        return
+    try:
+        result = await og.send_draft(db, d)
+    except Exception:  # noqa: BLE001
+        rds.delete(key)
+        raise
+    if result == "sent":
+        rds.incr(f"og:done:{tid}")
+        gap = random.uniform(p.delay_min, max(p.delay_min, p.delay_max))
+        rds.set(key, "1", ex=max(1, int(gap)))
+        log.info("sent draft %s (%s) -> next in %ss", d.id[:8], d.kind, int(gap))
+    else:
+        rds.delete(key)
+        log.info("draft %s -> %s: %s", d.id[:8], result, d.note)
+
+
 async def sender_loop() -> None:
     while True:
         try:
             with SessionLocal() as db:
                 tids = [t for (t,) in db.execute(select(Draft.tenant_id).where(Draft.status == "approved", Draft.not_before <= og.utcnow()).distinct()).all()]
-                for tid in tids:
-                    p = og.profile_of(db, tid)
-                    if p.dry_run:
-                        continue  # dry-run: nothing leaves, even if something was approved earlier
-                    key = f"og:gap:{tid}"
-                    if not rds.set(key, "1", nx=True, ex=600):  # lock + gap in one key: busy or still waiting for the human-like pause
-                        continue
-                    d = og.claim_next(db, tid)
-                    if not d:
-                        rds.delete(key)
-                        continue
-                    result = await og.send_draft(db, d)
-                    if result == "sent":
-                        rds.incr(f"og:done:{tid}")
-                        gap = random.uniform(p.delay_min, max(p.delay_min, p.delay_max))
-                        rds.set(key, "1", ex=max(1, int(gap)))
-                        log.info("sent draft %s (%s) -> next in %ss", d.id[:8], d.kind, int(gap))
-                    else:
-                        rds.delete(key)
-                        log.info("draft %s -> %s: %s", d.id[:8], result, d.note)
+            for tid in tids:  # a failing workspace never blocks the others in the same round
+                try:
+                    with SessionLocal() as db:
+                        await _send_one(db, tid)
+                except Exception:  # noqa: BLE001
+                    log.exception("sender failed for workspace %s", tid[:8])
         except Exception:  # noqa: BLE001
             log.exception("sender loop error")
         await asyncio.sleep(2)

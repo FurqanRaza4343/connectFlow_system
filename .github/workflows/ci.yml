@@ -27,7 +27,7 @@ jobs:
       JWT_SECRET: ci-only-secret
       OPENWA_WEBHOOK_SECRET: ci-only-webhook-secret
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with: { python-version: '3.12', cache: pip, cache-dependency-path: backend/requirements-dev.txt }
       - run: pip install -r requirements-dev.txt
@@ -47,7 +47,7 @@ jobs:
     name: Frontend - typecheck + build, website build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -70,7 +70,7 @@ jobs:
     env:
       COMPOSE_PROJECT_NAME: connectflow
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Write a throw-away infra/.env (CI only; nothing real)
         run: |
           rnd() { head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32; }

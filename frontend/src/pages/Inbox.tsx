@@ -2,9 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, Instance, Me, Via, viaText } from '../api';
 import { ago, usePoll } from '../components/util';
 import { Draft, DraftCard } from './Approvals';
+import { Attachment, AttachmentStrip, KindIcon, MEDIA_WORD, MediaChip } from '../components/media';
 
-type Conv = { leadId: string; company: string; whatsapp: string; status: string; lastMessage: string; lastDirection: 'in' | 'out'; lastAt: string; needsHuman: boolean; instanceId: string | null; via: Via };
-type Msg = { id: string; direction: 'in' | 'out'; body: string; kind: string; at: string };
+type Conv = { leadId: string; company: string; whatsapp: string; status: string; lastMessage: string; lastDirection: 'in' | 'out'; lastAt: string; needsHuman: boolean; instanceId: string | null; via: Via; attachments?: Attachment[]; mediaKind?: string | null };
+type Msg = { id: string; direction: 'in' | 'out'; body: string; kind: string; at: string; attachments?: Attachment[]; linkUrl?: string | null; mediaKind?: string | null };
 type Thread = { messages: Msg[]; drafts: Draft[]; via: Via };
 
 export function Inbox({ me, go, initialLead }: { me: Me; go: (hash: string) => void; initialLead?: string }) {
@@ -57,7 +58,7 @@ export function Inbox({ me, go, initialLead }: { me: Me; go: (hash: string) => v
             <button key={c.leadId} className={`conv${lead === c.leadId ? ' on' : ''}`} onClick={() => setLead(c.leadId)}>
               <div className="row between"><b>{c.company}</b><small className="muted">{ago(c.lastAt)}</small></div>
               <div className="conv-last muted">{c.lastDirection === 'out' ? 'You: ' : ''}{c.lastMessage.slice(0, 70)}</div>
-              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{c.via && <span className="tag via" title={c.via.label}>via {viaText(c.via)}</span>}{c.needsHuman && <span className="badge bad">needs you</span>}<span className={`badge ${c.status === 'stop' ? 'bad' : c.status === 'replied' ? 'ok' : 'warn'}`}>{c.status.replace('_', ' ')}</span></div>
+              <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{c.via && <span className="tag via" title={c.via.label}>via {viaText(c.via)}</span>}<MediaChip n={c.attachments?.length} kind={c.mediaKind} />{c.needsHuman && <span className="badge bad">needs you</span>}<span className={`badge ${c.status === 'stop' ? 'bad' : c.status === 'replied' ? 'ok' : 'warn'}`}>{c.status.replace('_', ' ')}</span></div>
             </button>
           ))}
           {list && !list.length && <p className="muted" style={{ textAlign: 'center', padding: '24px 8px' }}>{filter === 'all' ? 'No conversations yet. Replies from your leads appear here.' : 'Nothing in this view.'}</p>}
@@ -74,7 +75,7 @@ export function Inbox({ me, go, initialLead }: { me: Me; go: (hash: string) => v
               <div className="thread-body">
                 {!thread && <div className="skeleton" style={{ height: 120 }} />}
                 {thread?.messages.map((m) => (
-                  <div key={m.id} className={`bubble ${m.direction}`}><div>{m.body}</div><small>{m.kind !== 'reply' && m.direction === 'out' ? `${m.kind} · ` : ''}{new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></div>
+                  <div key={m.id} className={`bubble ${m.direction}`}>{m.mediaKind && /^\[[^\]]+\]$/.test(m.body.trim()) ? <div className="media-ph"><KindIcon kind={m.mediaKind === 'video' ? 'video' : m.mediaKind === 'document' ? 'document' : 'image'} size={18} /><span>They sent {MEDIA_WORD[m.mediaKind] || 'a file'}. Open WhatsApp on your phone to see it.</span></div> : <div>{m.body}</div>}<AttachmentStrip items={m.attachments} linkUrl={m.linkUrl} /><small>{m.kind !== 'reply' && m.direction === 'out' ? `${m.kind} · ` : ''}{new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></div>
                 ))}
                 {thread && !thread.messages.length && <p className="muted" style={{ textAlign: 'center' }}>No messages yet.</p>}
                 {thread?.drafts.filter((d) => ['pending', 'approved', 'sending', 'failed'].includes(d.status)).map((d) => (

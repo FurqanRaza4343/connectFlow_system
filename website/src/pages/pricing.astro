@@ -13,10 +13,12 @@ const groups: Array<{ g: string; rows: Row[] }> = [
     ['WhatsApp numbers', '1', '3', '10'],
     ['Messages per day', '50', '500', '3,000'],
     ['Workspace members', '1', '1', 'Team (roles)'],
+    ['Media library (images, PDF, links)', '20 MB · 5 files', '200 MB · 30 files', '2 GB · 200 files'],
   ] },
   { g: 'Outreach', rows: [
     ['AI research & drafting', Y, Y, Y],
     ['Approval queue', Y, Y, Y],
+    ['Your pictures, PDF & links in messages', Y, Y, Y],
     ['Lead import (CSV / Sheet)', Y, Y, Y],
     ['Lead enrichment (“Improve data”)', N, Y, Y],
     ['Follow-up sequences (roadmap)', N, Y, Y],
@@ -73,7 +75,7 @@ const billing = [
           ))}
         </table>
       </div>
-      <p class="note" style="margin-top:14px">Features marked “roadmap” or “beta” are not available to everyone yet; see the <a href="/features#roadmap" style="color:var(--mint)">features page</a> for status.</p>
+      <p class="note" style="margin-top:14px">Features marked “roadmap” or “beta” are not available to everyone yet; see the <a href="/features#roadmap" style="color:var(--mint)">features page</a> for status. Media files: images up to 5 MB, PDFs up to 10 MB, video up to 16 MB each.</p>
     </div>
   </section>
 
@@ -81,7 +83,7 @@ const billing = [
     <div class="wrap">
       <div class="sec-head"><span class="eyebrow">Usage</span><h2 class="h2">What counts as <span class="serif">a message?</span></h2><p class="lead">The daily limit counts messages we accept for sending from your workspace, from the dashboard or the API, in UTC days.</p></div>
       <div class="count-grid">
-        <div class="card y"><h3>Counts</h3><ul><li>A first message sent to a lead</li><li>A reply you approve and send</li><li>A message sent through <code class="i">POST /v1/messages</code></li></ul></div>
+        <div class="card y"><h3>Counts</h3><ul><li>A first message sent to a lead (a message that carries a picture or file is still one message)</li><li>A reply you approve and send</li><li>A message sent through <code class="i">POST /v1/messages</code></li></ul></div>
         <div class="card n"><h3>Does not count</h3><ul><li>Messages you receive from leads</li><li>Drafts, regenerations and AI research</li><li>Sends that fail or are rejected (for example, a number that is not on WhatsApp): they are refunded</li><li>Reading data through the API</li></ul></div>
       </div>
     </div>

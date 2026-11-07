@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, Me } from '../api';
 import { COUNTRY } from './Leads';
+import { DEFAULT_MEDIA, MediaCfg, MediaSettings, mediaProblem, normMedia } from './MediaSettings';
 
 type P = {
   company_name: string; sender_name: string; website: string; offer: string; tone: string; knowledge: string; default_country: string;
@@ -8,9 +9,10 @@ type P = {
   auto_run: boolean; batch_size: number; interval_hours: number; delay_min: number; delay_max: number; dry_run: boolean; auto_reply: boolean;
   hold_pricing: boolean; followups_enabled: boolean; followup_day1: number; followup_day2: number; fallback_template: string;
   notify_email: boolean; notify_extra_emails: string; notify_digest: boolean;
+  media: MediaCfg;
 };
 
-const DEFAULTS: Partial<P> = { auto_run: false, batch_size: 5, interval_hours: 5, delay_min: 60, delay_max: 180, dry_run: true, auto_reply: false, hold_pricing: true, followups_enabled: false, followup_day1: 3, followup_day2: 7, fallback_template: '', notify_email: true, notify_extra_emails: '', notify_digest: false };
+const DEFAULTS: Partial<P> = { auto_run: false, batch_size: 5, interval_hours: 5, delay_min: 60, delay_max: 180, dry_run: true, auto_reply: false, hold_pricing: true, followups_enabled: false, followup_day1: 3, followup_day2: 7, fallback_template: '', notify_email: true, notify_extra_emails: '', notify_digest: false, media: DEFAULT_MEDIA };
 
 function validate(p: P): string {
   if (p.delay_min > p.delay_max) return 'The shortest gap between messages cannot be longer than the longest gap.';
@@ -21,17 +23,19 @@ function validate(p: P): string {
   const extras = p.notify_extra_emails.split(/[,;\s]+/).filter(Boolean);
   if (extras.length > 3) return 'Add at most 3 extra email addresses.';
   if (extras.some((e) => !/^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(e))) return 'One of the extra email addresses is not valid.';
+  const mp = mediaProblem(p.media);
+  if (mp) return mp;
   if (!/^\d{2}:\d{2}$/.test(p.active_from) || !/^\d{2}:\d{2}$/.test(p.active_to)) return 'Choose valid active hours.';
   return '';
 }
 
-export function OutreachSetup({ me }: { me: Me }) {
+export function OutreachSetup({ me, go }: { me: Me; go?: (hash: string) => void }) {
   const [p, setP] = useState<P | null>(null);
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const canEdit = ['owner', 'admin'].includes(me.role);
-  useEffect(() => { api<P>('/api/outreach/profile').then((r) => setP({ ...DEFAULTS, ...r } as P)).catch((e) => setErr(e.message)); }, []);
+  useEffect(() => { api<P>('/api/outreach/profile').then((r) => setP({ ...DEFAULTS, ...r, media: normMedia((r as any).media) } as P)).catch((e) => setErr(e.message)); }, []);
   if (!p) return err ? <div className="err">{err}</div> : <div className="skeleton" style={{ height: 240 }} />;
   const set = <K extends keyof P>(k: K, v: P[K]) => setP({ ...p, [k]: v });
   const problem = validate(p);
@@ -39,7 +43,7 @@ export function OutreachSetup({ me }: { me: Me }) {
     setErr(''); setMsg('');
     if (problem) { setErr(problem); return; }
     setBusy(true);
-    try { setP({ ...DEFAULTS, ...(await api<P>('/api/outreach/profile', 'PUT', p)) } as P); setMsg('Saved.'); } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
+    try { { const r = await api<P>('/api/outreach/profile', 'PUT', p); setP({ ...DEFAULTS, ...r, media: normMedia((r as any).media) } as P); } setMsg('Saved.'); } catch (e: any) { setErr(e.message); } finally { setBusy(false); }
   };
   const zones = (Intl as any).supportedValuesOf ? ((Intl as any).supportedValuesOf('timeZone') as string[]) : ['UTC'];
   const sw = (k: keyof P, label: string, hint: string) => (
@@ -87,6 +91,7 @@ export function OutreachSetup({ me }: { me: Me }) {
           {sw('followups_enabled', 'Send gentle follow-ups', 'If a lead has not replied, the AI drafts a short nudge. It stops the moment they reply, opt out, or you put them on hold.')}
           {p.followups_enabled && <div className="two">{numf('followup_day1', 'First follow-up after (days)', 'Counted from the first message.', 1, 60)}{numf('followup_day2', 'Second follow-up after (days)', 'Must be later than the first.', 2, 120)}</div>}
         </div>
+        <MediaSettings value={p.media} onChange={(m) => set('media', m)} canEdit={canEdit} go={go} followupsOn={p.followups_enabled} />
         <div className="card stack"><b>Notifications</b>
           {sw('notify_email', 'Email me about important events', 'A lead needs a human answer, a number disconnects or needs a new QR, a batch has failures, or the daily limit is reached. At most one email per type per hour.')}
           <label>Extra email addresses <small className="muted">optional, up to 3, comma separated. Owners and admins always receive alerts.</small><input value={p.notify_extra_emails} onChange={(e) => set('notify_extra_emails', e.target.value)} placeholder="sales@yourcompany.com, ops@yourcompany.com" disabled={!p.notify_email} /></label>

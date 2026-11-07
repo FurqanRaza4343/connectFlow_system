@@ -13,6 +13,7 @@ from ..config import settings
 from ..db import get_db
 from ..deps import Ctx, platform_admin, rds
 from ..models import (ApiKey, ApiKeyUsage, AuditLog, Instance, Lead, Membership, Message, Plan, Tenant, UpgradeRequest, UsageEvent, User, WebhookDelivery, WebhookEndpoint)
+from .. import assetlib
 from ..quota import ai_calls_today, day_start, messages_today
 from ..sqlutil import rows_to_dict
 from collections.abc import Iterable
@@ -158,6 +159,7 @@ async def delete_customer(tenant_id: str, ctx: Ctx = Depends(platform_admin), db
             await wa.delete_session(i.openwa_id)
         except wa.WAError:
             pass  # the session may already be gone
+    await assetlib.purge_tenant(db, t.id)  # stored media files (the rows go with the workspace)
     only_here = [u for m, u in db.query(Membership, User).join(User, User.id == Membership.user_id).filter(Membership.tenant_id == t.id).all()
                  if db.query(Membership).filter(Membership.user_id == u.id, Membership.tenant_id != t.id).count() == 0]
     name = t.name

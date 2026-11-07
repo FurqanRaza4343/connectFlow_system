@@ -11,10 +11,11 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from .. import wa_client as wa
+from ..config import settings
 from ..config_ops import ops
 from ..db import get_db
 from ..deps import Ctx, platform_admin
-from ..models import Instance
+from ..models import Asset, AssetVariant, Draft, Instance
 from ..ops_logging import RequestLogMiddleware, init_sentry, setup_logging
 from fastapi import FastAPI
 
@@ -30,6 +31,18 @@ def _json(v: str | None) -> dict:
         return json.loads(v) if v else {}
     except ValueError:
         return {}
+
+
+def _storage(db: Session, r: Any) -> dict[str, Any]:
+    """Media library figures (counts and bytes only; never file names or content)."""
+    from sqlalchemy import func
+
+    now = datetime.now(timezone.utc)
+    hour = now.strftime("%Y%m%d%H")
+    nbytes = int(db.query(func.coalesce(func.sum(Asset.size_bytes), 0)).scalar() or 0) + int(db.query(func.coalesce(func.sum(AssetVariant.size_bytes), 0)).scalar() or 0)
+    return {"backend": settings.storage_backend, "assetsTotal": int(db.query(func.count(Asset.id)).scalar() or 0), "bytesTotal": nbytes,
+            "mediaSends1h": int(r.get(f"media:sends:{hour}") or 0), "senderQueueDepth": int(db.query(func.count(Draft.id)).filter(Draft.status == "approved").scalar() or 0),
+            "uploadFailures1h": int(r.get(f"asset:fail:{hour}") or 0)}
 
 
 @router.get("/api/admin/capacity")
@@ -60,6 +73,7 @@ async def capacity(db: Session = Depends(get_db), _: Ctx = Depends(platform_admi
         "backups": {"lastBackupAt": bak.get("at"), "sizeBytes": bak.get("sizeBytes")},
         "ai": {"callsToday": int(r.get(f"ai:global:{today}") or 0), "globalCap": int(cap) if cap and cap.isdigit() else None, "breakerOpen": bool(r.exists("ai:breaker"))},
         "waitlist": int(r.llen("waitlist:instances")),
+        "storage": _storage(db, r),
     }
 
 

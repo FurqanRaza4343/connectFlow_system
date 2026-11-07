@@ -15,3 +15,5 @@ sentry-sdk>=2.0,<3
 cryptography>=43,<46
 pyotp==2.9.0
 segno==1.6.1
+Pillow==11.0.0
+python-multipart==0.0.20

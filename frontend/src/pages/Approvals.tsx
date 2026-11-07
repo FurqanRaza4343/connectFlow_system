@@ -1,10 +1,12 @@
 import { useCallback, useState } from 'react';
 import { api, Me, Via, viaText } from '../api';
 import { ago, countdown, num, usePoll, useNow } from '../components/util';
+import { Attachment, AttachmentStrip, MediaChip } from '../components/media';
 
 export type Draft = {
   id: string; leadId: string; company: string; whatsapp: string; kind: 'first' | 'followup' | 'reply'; body: string; incoming: string;
   status: string; note: string; source: 'ai' | 'manual' | 'fallback'; needsHuman: boolean; createdAt: string; via?: Via;
+  attachments?: Attachment[]; linkUrl?: string | null;
 };
 type Res = { rows: Draft[]; total: number; page: number; pages: number; counts: Record<string, number> };
 type Queue = { sending: boolean; remaining: number; done: number; nextAt: string | null; current: string | null };
@@ -113,6 +115,7 @@ export function DraftCard({ d, canEdit, dry, selected, onSelect, act, approve, c
         </div>
         <div className="row" style={{ gap: 6 }}>
           <span className="tag">{KIND[d.kind] || d.kind}</span>
+          <MediaChip n={d.attachments?.filter((a) => a.kind !== 'link').length} link={!!d.linkUrl || !!d.attachments?.some((a) => a.kind === 'link')} />
           <span className="tag via" title={d.via ? d.via.label : 'The number is chosen when it is sent (least used, under its warm-up cap)'}>{d.via ? `via ${viaText(d.via)}` : 'number chosen at send'}</span>
           {d.needsHuman && <span className="badge bad">NEEDS HUMAN</span>}
           {d.source === 'fallback' && <span className="badge warn">fallback template</span>}
@@ -124,6 +127,7 @@ export function DraftCard({ d, canEdit, dry, selected, onSelect, act, approve, c
       {editable
         ? <textarea className="draft-text" rows={compact ? 3 : 5} value={text} onChange={(e) => setText(e.target.value)} aria-label={`Message to ${d.company}`} />
         : <div className="draft-read">{d.body}</div>}
+      <AttachmentStrip items={d.attachments} linkUrl={d.linkUrl} lead={d.status === 'sent' ? 'Sent with' : d.kind === 'reply' && d.source === 'ai' ? 'The AI chose these from your Assets to go with the reply' : 'Will be sent with'} />
       {research !== null && <div className="panel2"><b>Research</b><p>{research}</p></div>}
       <div className="row" style={{ marginTop: 4 }}>
         {editable && dirty && <button disabled={busy || !text.trim()} onClick={async () => { setBusy(true); await act(() => api(`/api/drafts/${d.id}`, 'PATCH', { body: text }), 'Saved.'); setBusy(false); }}>Save changes</button>}

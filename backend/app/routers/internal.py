@@ -27,6 +27,16 @@ def _text(v: object, limit: int = 4096) -> str:
     return str(v).strip()[:limit] if isinstance(v, (str, int, float)) and not isinstance(v, bool) else ""
 
 
+MEDIA_TYPES = {"image": "image", "video": "video", "document": "document", "audio": "voice", "ptt": "voice", "voice": "voice", "sticker": "sticker"}
+
+
+def media_kind(msg_type: str, has_media: bool) -> str | None:
+    """Gateway message type -> the placeholder kind we store ('image', 'document', ...); None for ordinary text."""
+    if msg_type in MEDIA_TYPES:
+        return MEDIA_TYPES[msg_type]
+    return "media" if has_media else None
+
+
 @router.post("/wa-webhook", response_model=None)
 async def wa_webhook(request: Request, db: Session = Depends(get_db)) -> dict[str, Any] | JSONResponse:
     raw = await request.body()
@@ -79,11 +89,12 @@ async def _handle(db: Session, request: Request, payload: dict[str, Any]) -> Non
         inst = db.query(Instance).filter(Instance.openwa_id == sid).first()
         frm = _text(data.get("from"))
         text = _text(data.get("body")) or _text(data.get("text"))
-        if inst and text and not data.get("fromMe") and not data.get("isGroup") and not re.search(r"@(g\.us|newsletter|broadcast)$", frm):
+        mkind = media_kind(_text(data.get("type"), 24).lower(), bool(data.get("hasMedia")))  # an image/PDF/voice note arrives with an empty or caption-only body
+        if inst and (text or mkind) and not data.get("fromMe") and not data.get("isGroup") and not re.search(r"@(g\.us|newsletter|broadcast)$", frm):
             number = re.sub(r"\D", "", _text(data.get("senderPhone")) or frm.split("@")[0])
-            emit(db, inst.tenant_id, "message.received", inst, {"from": number, "text": text, "messageId": _text(data.get("id")) or _text(data.get("messageId"))})
+            emit(db, inst.tenant_id, "message.received", inst, {"from": number, "text": text or f"[{mkind}]", "mediaKind": mkind, "messageId": _text(data.get("id")) or _text(data.get("messageId"))})
             try:
-                await og.handle_inbound(db, inst, number, text, frm)
+                await og.handle_inbound(db, inst, number, text, frm, mkind)
             except Exception:  # noqa: BLE001  never fail the gateway webhook because lead handling failed
                 db.rollback()
                 log.exception("lead handling failed for an inbound message")

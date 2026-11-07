@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from .. import ai, outreach as og
+from .. import ai, assetlib, outreach as og
 from ..db import get_db
 from ..deps import Ctx, need_role, TCtx
 from ..leadtools import FIELDS, csv_safe, normalize_phone, parse_csv, suggest_mapping
@@ -331,11 +331,12 @@ class ProfileIn(BaseModel):
     notify_email: bool = True
     notify_extra_emails: str = Field(default="", max_length=600)
     notify_digest: bool = False
+    media: dict | None = None  # {firstMessage:{mode,assetIds}, followup1:{assetIds}, followup2:{assetIds}, replies:{enabled,allowTags}}; omitted = unchanged
 
 
 def _prof_out(p: OutreachProfile) -> dict:
     return {k: getattr(p, k) for k in ("company_name", "sender_name", "website", "offer", "tone", "knowledge", "default_country", "timezone", "active_from", "active_to", "daily_limit", "require_approval",
-                                    "auto_run", "batch_size", "interval_hours", "delay_min", "delay_max", "dry_run", "auto_reply", "hold_pricing", "followups_enabled", "followup_day1", "followup_day2", "fallback_template", "notify_email", "notify_extra_emails", "notify_digest")}
+                                    "auto_run", "batch_size", "interval_hours", "delay_min", "delay_max", "dry_run", "auto_reply", "hold_pricing", "followups_enabled", "followup_day1", "followup_day2", "fallback_template", "notify_email", "notify_extra_emails", "notify_digest")} | {"media": assetlib.normalize_media(p.media)}
 
 
 @router.get("/outreach/profile")
@@ -367,8 +368,11 @@ def put_profile(body: ProfileIn, ctx: TCtx = Depends(need_role("admin")), db: Se
     except ValueError as e:
         raise HTTPException(422, str(e))
     p = _profile(db, ctx.tenant.id)
-    for k, v in body.model_dump().items():
+    new_media = assetlib.validate_media_config(db, ctx.tenant.id, body.media) if body.media is not None else None
+    for k, v in body.model_dump(exclude={"media"}).items():
         setattr(p, k, v.upper() if k == "default_country" else ", ".join(extras) if k == "notify_extra_emails" else v)
+    if new_media is not None:
+        p.media = new_media
     db.add(AuditLog(tenant_id=ctx.tenant.id, user_id=ctx.user.id, action="outreach.profile", detail="updated"))
     db.commit()
     return _prof_out(p)
@@ -416,7 +420,7 @@ async def draft_now(lead_id: str, ctx: TCtx = Depends(need_role("operator")), db
         d = await og.make_first_draft(db, l, _profile(db, ctx.tenant.id), ctx.tenant.name)
     except ai.AIError as e:
         raise HTTPException(getattr(e, "status", 502), str(e) if isinstance(e, ai.AILimitError) else f"AI: {e}")
-    return draft_out(d, l)
+    return draft_out(d, l, atts=assetlib.draft_attachments(db, [d.id]).get(d.id))
 
 
 @router.get("/leads/{lead_id}/thread")
@@ -426,8 +430,11 @@ def thread(lead_id: str, ctx: TCtx = Depends(need_role("viewer")), db: Session =
     drafts = db.query(Draft).filter(Draft.lead_id == l.id, Draft.tenant_id == ctx.tenant.id).order_by(Draft.created_at).all()
     insts = {i.id: i for i in db.query(Instance).filter(Instance.tenant_id == ctx.tenant.id).all()}
     i = insts.get(l.instance_id or "")
-    return {"messages": [{"id": m.id, "direction": m.direction, "body": m.body, "kind": m.kind, "at": m.created_at.isoformat(), "instanceId": m.instance_id} for m in msgs],
-            "drafts": [draft_out(d, l, insts) for d in drafts], "via": {"id": i.id, "label": i.label, "phone": i.phone, "status": i.status} if i else None}
+    m_atts = assetlib.message_attachments(db, msgs)
+    d_atts = assetlib.draft_attachments(db, [d.id for d in drafts])
+    return {"messages": [{"id": m.id, "direction": m.direction, "body": m.body, "kind": m.kind, "at": m.created_at.isoformat(), "instanceId": m.instance_id, "mediaKind": m.media_kind,
+                          "attachments": m_atts.get(m.id, []), "linkUrl": assetlib.link_of(m_atts.get(m.id, []))} for m in msgs],
+            "drafts": [draft_out(d, l, insts, d_atts.get(d.id)) for d in drafts], "via": {"id": i.id, "label": i.label, "phone": i.phone, "status": i.status} if i else None}
 
 
 class ReplyIn(BaseModel):
@@ -446,4 +453,4 @@ def manual_reply(lead_id: str, body: ReplyIn, ctx: TCtx = Depends(need_role("ope
     d = Draft(tenant_id=ctx.tenant.id, lead_id=l.id, kind="reply", body=body.text.strip(), status="approved", source="manual")
     db.add(d)
     db.commit()
-    return draft_out(d, l)
+    return draft_out(d, l, atts=[])

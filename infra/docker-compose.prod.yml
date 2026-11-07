@@ -1,0 +1,37 @@
+# Production overrides for a single VPS. Use together with the base file:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# What it changes (and why):
+#   * Caddy listens on the public ports 80 and 443 (the base file only binds 127.0.0.1:8080 for local development).
+#   * Caddy's certificates and ACME account live in named volumes. Without them every restart asks Let's Encrypt for new
+#     certificates and you hit its rate limits.
+#   * Logs are rotated so the disk never fills up.
+#   * The legacy single-tenant stack is not part of production (never add `--profile legacy` on the server).
+services:
+  caddy:
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'   # HTTP/3
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    logging: &rotate
+      driver: json-file
+      options: { max-size: '10m', max-file: '5' }
+
+  api:
+    logging: *rotate
+  worker:
+    logging: *rotate
+  postgres:
+    logging: *rotate
+  redis:
+    logging: *rotate
+  wa-gateway:
+    logging: *rotate
+
+volumes:
+  caddy-data:
+  caddy-config:

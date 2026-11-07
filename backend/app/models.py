@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import JSON, BigInteger, Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -25,6 +25,8 @@ class Plan(Base):
     price_usd: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     price_pkr: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     ai_calls_day: Mapped[int] = mapped_column(Integer, default=200, server_default="200")  # AI calls per workspace per UTC day
+    asset_bytes_limit: Mapped[int] = mapped_column(BigInteger, default=20 * 1024 * 1024, server_default=str(20 * 1024 * 1024))  # media library storage per workspace
+    asset_count_limit: Mapped[int] = mapped_column(Integer, default=5, server_default="5")  # media library items (files and links) per workspace
 
 
 class Tenant(Base):
@@ -140,6 +142,7 @@ class UsageEvent(Base):
     """One row per billable/limited action (currently: a message accepted for sending)."""
 
     __tablename__ = "usage_events"
+    __table_args__ = (Index("ix_usage_events_tenant_kind_at", "tenant_id", "kind", "at"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     instance_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -224,7 +227,8 @@ class LeadList(Base):
 
 class Lead(Base):
     __tablename__ = "leads"
-    __table_args__ = (Index("uq_lead_whatsapp", "tenant_id", "whatsapp", unique=True, postgresql_where=text("whatsapp <> ''")),)
+    __table_args__ = (Index("uq_lead_whatsapp", "tenant_id", "whatsapp", unique=True, postgresql_where=text("whatsapp <> ''")),
+                      Index("ix_leads_followup", "tenant_id", "status", "followup_stage", "sent_at"))
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
     list_id: Mapped[str | None] = mapped_column(ForeignKey("lead_lists.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -286,6 +290,7 @@ class OutreachProfile(Base):
     notify_email: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     notify_extra_emails: Mapped[str] = mapped_column(String(600), default="", server_default="")  # comma separated, max 3
     notify_digest: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    media: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'::json"))  # what to attach: firstMessage / followup1 / followup2 / replies (see app/assetlib.py)
 
 
 class Draft(Base):
@@ -310,11 +315,58 @@ class Draft(Base):
     sending_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class Asset(Base):
+    """A file (image, PDF, short video) or a link in the workspace's media library. Bytes live in the storage backend, never in Postgres."""
+
+    __tablename__ = "assets"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(12))  # image | document | video | link
+    label: Mapped[str] = mapped_column(String(120), default="")
+    tags: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'::json"))  # services | pricing | portfolio | trust | booking | ...
+    mime: Mapped[str] = mapped_column(String(80), default="")
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    storage_backend: Mapped[str] = mapped_column(String(12), default="")  # local | cloudinary ('' for links)
+    storage_key: Mapped[str] = mapped_column(String(300), default="")
+    thumb_key: Mapped[str] = mapped_column(String(300), default="")
+    link_url: Mapped[str] = mapped_column(String(500), default="")
+    link_title: Mapped[str] = mapped_column(String(200), default="")
+    created_by: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class AssetVariant(Base):
+    """Up to 5 alternative files of one asset; the sender rotates through them so identical bytes are not sent to hundreds of strangers."""
+
+    __tablename__ = "asset_variants"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
+    storage_backend: Mapped[str] = mapped_column(String(12), default="")
+    storage_key: Mapped[str] = mapped_column(String(300), default="")
+    mime: Mapped[str] = mapped_column(String(80), default="")
+    size_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class DraftAsset(Base):
+    """What a draft will carry when it is sent (files and links, in order)."""
+
+    __tablename__ = "draft_assets"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    draft_id: Mapped[str] = mapped_column(ForeignKey("drafts.id", ondelete="CASCADE"), index=True)
+    asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), index=True)
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Message(Base):
     """The conversation log. Content is visible to the customer only (admins get counts)."""
 
     __tablename__ = "messages"
-    __table_args__ = (Index("ix_messages_tenant_lead", "tenant_id", "lead_id"), Index("ix_messages_tenant_chat", "tenant_id", "chat_id"))
+    __table_args__ = (Index("ix_messages_tenant_lead", "tenant_id", "lead_id"), Index("ix_messages_tenant_chat", "tenant_id", "chat_id"),
+                      Index("ix_messages_tenant_dir_kind_at", "tenant_id", "direction", "kind", "created_at"))
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
     tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"))
     lead_id: Mapped[str | None] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), nullable=True)
@@ -323,6 +375,8 @@ class Message(Base):
     direction: Mapped[str] = mapped_column(String(3))  # in | out
     body: Mapped[str] = mapped_column(Text)
     kind: Mapped[str] = mapped_column(String(10), default="first")  # first | followup | reply
+    media_kind: Mapped[str | None] = mapped_column(String(12), nullable=True)  # image | video | document | voice | sticker | media (null = plain text)
+    asset_ids: Mapped[list] = mapped_column(JSON, default=list, server_default=text("'[]'::json"))  # [{"assetId", "variantId"}] actually sent with this message
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now, index=True)
 
 

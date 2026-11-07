@@ -11,6 +11,12 @@ export type Instance = { id: string; label: string; phone: string; status: strin
 export type Via = { id: string; label: string; phone: string; status: string } | null;
 export const viaText = (v: Via | undefined) => (v ? (v.phone ? `+${v.phone.replace(/\D/g, '')}` : v.label) : '');
 
+/** The plain-language text of an API error body ({detail: string | [{msg}]}); falls back to the HTTP status. */
+export function errMessage(j: unknown, status: number): string {
+  const d = (j as any)?.detail;
+  return typeof d === 'string' ? d : Array.isArray(d) ? d.map((x: any) => x.msg).join(', ') : `Error ${status}`;
+}
+
 export async function api<T = any>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,

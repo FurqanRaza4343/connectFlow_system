@@ -16,6 +16,7 @@ All live in `infra/.env` (git-ignored) locally, and in the host's secret store /
 | `SENTRY_DSN` (if used) | error reporting | regenerate in Sentry | none |
 | `ENCRYPTION_KEY` | webhook signing secrets and 2FA secrets at rest (Fernet) | see **Rotating ENCRYPTION_KEY** below | none if done in order; losing the key makes those secrets unreadable |
 | `TURNSTILE_SECRET_KEY` (optional) | Cloudflare captcha verification | create new widget secret in Cloudflare, update `.env` | none |
+| `CLOUDINARY_URL` (only with `STORAGE_BACKEND=cloudinary`) | the whole media library at Cloudinary (`cloudinary://<api_key>:<api_secret>@<cloud>`) | Cloudinary console: regenerate the API secret, put the new URL in `infra/.env`, `docker compose up -d api worker` | none (files stay; uploads fail until the new URL is set). **Secret: never in Git, never in chat, never in logs** |
 
 ## Rotate NOW (before first push) if any of these ever left your machine
 Any key you pasted in chat/screenshots/Notion, in particular the DeepSeek key (it appeared in a screenshot referenced by the legacy README) and the Resend key if it was ever shown. Rotating is free; a leaked key is not.

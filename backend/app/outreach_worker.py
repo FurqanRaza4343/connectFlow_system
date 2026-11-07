@@ -18,6 +18,7 @@ from .enrich import enrich_lead
 from .models import Draft, Lead
 
 log = logging.getLogger("outreach")
+SEND_CONCURRENCY = 8  # workspaces sent to at the same time per worker (each uses its own DB session)
 
 
 async def _send_one(db: Session, tid: str) -> None:
@@ -47,17 +48,29 @@ async def _send_one(db: Session, tid: str) -> None:
         log.info("draft %s -> %s: %s", d.id[:8], result, d.note)
 
 
+_inflight: dict[str, "asyncio.Task[None]"] = {}
+
+
+async def _send_isolated(tid: str) -> None:
+    """One workspace's send in its own task and DB session: a slow media upload of one workspace never delays the others, and a failure stays local."""
+    try:
+        with SessionLocal() as db:
+            await _send_one(db, tid)
+    except Exception:  # noqa: BLE001
+        log.exception("sender failed for workspace %s", tid[:8])
+    finally:
+        _inflight.pop(tid, None)
+
+
 async def sender_loop() -> None:
     while True:
         try:
             with SessionLocal() as db:
                 tids = [t for (t,) in db.execute(select(Draft.tenant_id).where(Draft.status == "approved", Draft.not_before <= og.utcnow()).distinct()).all()]
-            for tid in tids:  # a failing workspace never blocks the others in the same round
-                try:
-                    with SessionLocal() as db:
-                        await _send_one(db, tid)
-                except Exception:  # noqa: BLE001
-                    log.exception("sender failed for workspace %s", tid[:8])
+            for tid in tids:
+                if tid in _inflight or len(_inflight) >= SEND_CONCURRENCY:
+                    continue  # that workspace is still sending (e.g. a slow media upload), or the worker is at capacity: try again next round
+                _inflight[tid] = asyncio.create_task(_send_isolated(tid))
         except Exception:  # noqa: BLE001
             log.exception("sender loop error")
         await asyncio.sleep(2)

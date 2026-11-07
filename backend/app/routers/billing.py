@@ -17,6 +17,7 @@ from ..db import get_db
 from ..deps import Ctx, need_role, platform_admin, TCtx
 from ..mailer import layout, send_email
 from ..models import AuditLog, Instance, Membership, Plan, Tenant, UpgradeRequest, User
+from .. import assetlib
 from ..quota import ai_calls_today, messages_today
 
 router = APIRouter(prefix="/api", tags=["billing"])
@@ -32,7 +33,7 @@ class UpgradeIn(BaseModel):
 
 
 def _plan(p: Plan) -> dict:
-    return {"id": p.id, "name": p.name, "priceUsd": p.price_usd, "pricePkr": p.price_pkr, "maxInstances": p.max_instances, "maxMsgsDay": p.max_msgs_day, "maxMembers": p.max_members, "aiCallsDay": p.ai_calls_day}
+    return {"id": p.id, "name": p.name, "priceUsd": p.price_usd, "pricePkr": p.price_pkr, "maxInstances": p.max_instances, "maxMsgsDay": p.max_msgs_day, "maxMembers": p.max_members, "aiCallsDay": p.ai_calls_day, "assetBytesLimit": int(p.asset_bytes_limit), "assetCountLimit": int(p.asset_count_limit)}
 
 
 @router.get("/billing")
@@ -42,7 +43,7 @@ def billing(ctx: TCtx = Depends(need_role("viewer")), db: Session = Depends(get_
     history = db.query(UpgradeRequest).filter(UpgradeRequest.tenant_id == t.id).order_by(UpgradeRequest.created_at.desc()).limit(10).all()
     return {
         "plan": _plan(t.plan),
-        "usage": {"messagesToday": messages_today(db, t.id), "aiCallsToday": ai_calls_today(db, t.id), "numbers": db.query(func.count(Instance.id)).filter(Instance.tenant_id == t.id).scalar(), "members": db.query(func.count(Membership.id)).filter(Membership.tenant_id == t.id).scalar()},
+        "usage": {"messagesToday": messages_today(db, t.id), "aiCallsToday": ai_calls_today(db, t.id), "numbers": db.query(func.count(Instance.id)).filter(Instance.tenant_id == t.id).scalar(), "members": db.query(func.count(Membership.id)).filter(Membership.tenant_id == t.id).scalar(), "assets": assetlib.usage(db, t.id, t.plan)},
         "plans": [_plan(p) for p in db.query(Plan).order_by(Plan.price_usd).all()],
         "stripe": sb.billing_state(t),
         "overLimit": db.query(func.count(Instance.id)).filter(Instance.tenant_id == t.id, Instance.over_limit.is_(True)).scalar(),

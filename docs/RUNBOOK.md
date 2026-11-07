@@ -140,3 +140,15 @@ Platform admins are sent straight to the enrolment screen at their next sign-in 
 
 ### Related settings
 `ADMIN_2FA_REQUIRED` (default: on when `COOKIE_SECURE=true`), `ENCRYPTION_KEY` / `ENCRYPTION_KEY_PREVIOUS` (docs/SECRETS.md), `DISPOSABLE_EMAIL_ALLOW`, `TURNSTILE_SITE_KEY` + `TURNSTILE_SECRET_KEY`. Trial workspaces may start at most 3 WhatsApp sessions per hour.
+
+## 8. Media library (storage, limits, housekeeping)
+Reference: `docs/MEDIA.md`.
+- **Where the files are**: `STORAGE_BACKEND=local` -> Docker volume `assets-data` (`/data/assets` in `api` and `worker`); `cloudinary` -> your Cloudinary account (`CLOUDINARY_URL` in `infra/.env`).
+- **Backups**: the Postgres backup holds only metadata. Include the volume (`docker run --rm -v connectflow_assets-data:/d -v "$PWD":/b alpine tar czf /b/assets.tgz -C /d .`) or rely on Cloudinary.
+- **Disk**: `docker compose exec api du -sh /data/assets`; a full volume makes uploads answer 507 (existing files keep working). Capacity view: `GET /api/admin/capacity` -> `storage`.
+- **Housekeeping** (worker, hourly): stale upload reservations and unreferenced local files older than 1 h are removed. Run once by hand: `docker compose exec worker python -c "import asyncio;from app.assets_sweep import sweep_once;from app.db import SessionLocal;print(asyncio.run(sweep_once(SessionLocal())))"`.
+- **A customer deleted by an admin** also loses its stored files (best effort; local leftovers are swept within the hour).
+- **Quota or Cloudinary 507/502 in the logs**: look at `uploadFailures1h` in the capacity view; 507 = provider quota (upgrade the Cloudinary plan or switch `STORAGE_BACKEND`), 502 = credentials or provider outage.
+- **Large tables**: before upgrading a database with millions of messages/usage events, create the composite indexes of migration 0011 by hand with `CREATE INDEX CONCURRENTLY` (see `docs/MEDIA.md`).
+- **Redis counters**: if a daily counter ever looks wrong, delete the key (`q:msg:<tenant>:<YYYYMMDD>`, `og:first|out|media:<tenant>:<date>`); the next read rebuilds it from the database.
+

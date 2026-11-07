@@ -36,9 +36,9 @@ export const safety = [
 ];
 
 export const plans = [
-  { id: 'trial', name: 'Trial', usd: '0', pkr: '0', blurb: 'Try the full flow on one number.', cta: 'Start free', items: ['1 WhatsApp number', '50 messages / day', '20 AI drafts / day', 'Approval queue', 'Email support'] },
-  { id: 'starter', name: 'Starter', usd: '19', pkr: '4,999', blurb: 'For founders and small sales teams.', cta: 'Start with Starter', pop: true, items: ['3 WhatsApp numbers', '500 messages / day', 'Lead import & enrichment', 'Follow-up sequences', 'Reply inbox & handoff', 'API & webhooks (beta)'] },
-  { id: 'growth', name: 'Growth', usd: '59', pkr: '14,999', blurb: 'For agencies and growing teams.', cta: 'Start with Growth', items: ['10 WhatsApp numbers', '3,000 messages / day', 'Team members & roles', 'Priority support', 'Custom company knowledge', 'Early access to new features'] },
+  { id: 'trial', name: 'Trial', usd: '0', pkr: '0', blurb: 'Try the full flow on one number.', cta: 'Start free', items: ['1 WhatsApp number', '50 messages / day', '20 AI drafts / day', 'Media library: 20 MB, 5 files', 'Approval queue', 'Email support'] },
+  { id: 'starter', name: 'Starter', usd: '19', pkr: '4,999', blurb: 'For founders and small sales teams.', cta: 'Start with Starter', pop: true, items: ['3 WhatsApp numbers', '500 messages / day', 'Media library: 200 MB, 30 files', 'Lead import & enrichment', 'Follow-up sequences', 'Reply inbox & handoff', 'API & webhooks (beta)'] },
+  { id: 'growth', name: 'Growth', usd: '59', pkr: '14,999', blurb: 'For agencies and growing teams.', cta: 'Start with Growth', items: ['10 WhatsApp numbers', '3,000 messages / day', 'Media library: 2 GB, 200 files', 'Team members & roles', 'Priority support', 'Custom company knowledge', 'Early access to new features'] },
 ];
 
 export const faqs = [
@@ -46,6 +46,7 @@ export const faqs = [
   { q: 'Will my number get banned?', a: 'Any tool that automates WhatsApp carries some risk, and cold messaging carries the most. ConnectFlow lowers it with warm-up, daily caps, human-like pacing, number validation, approval-first sending and instant opt-out. Message people who plausibly want to hear from you, keep it relevant, and respect STOP.' },
   { q: 'Do I need a separate phone or SIM?', a: 'We recommend a dedicated business number rather than your personal one. It is linked as a device, so the phone only needs to stay registered to that number.' },
   { q: 'What does the AI actually do?', a: 'For each lead it reads public information about the business, drafts a short personal first message, and later drafts replies. You can edit or regenerate any draft, and by default nothing is sent until you approve it.' },
+  { q: 'Can my messages include pictures, a brochure or my website link?', a: 'Yes. Upload your own images, PDF brochure and links to your media library, then choose what goes with first messages, follow-ups and AI replies. A first contact is always one message (your picture with its caption, or text with your link), and everything still waits for your approval. To protect your number, a new number sends no media for its first 3 days and only a limited share of its messages carry media while it warms up. Limits per file: images 5 MB, PDFs 10 MB, video 16 MB.' },
   { q: 'Is my data private?', a: 'Each workspace is isolated from every other. Your leads and conversations are never used to serve other customers. See our Privacy page for details.' },
   { q: 'Can I cancel any time?', a: 'Yes. Plans are monthly, and you can export your leads and conversations before you leave.' },
 ];

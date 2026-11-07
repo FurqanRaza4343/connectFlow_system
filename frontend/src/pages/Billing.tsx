@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, Me } from '../api';
+import { AssetList, AssetUsage, fmtBytes } from '../components/media';
 
 type Plan = { id: string; name: string; priceUsd: number; pricePkr: number; maxInstances: number; maxMsgsDay: number; maxMembers: number; aiCallsDay: number };
 type Stripe = { enabled: boolean; status: string; renewsAt: string | null; cancelAtPeriodEnd: boolean; graceEndsAt: string | null; hasCustomer: boolean };
@@ -18,9 +19,11 @@ export function Billing({ me }: { me: Me }) {
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState('');
+  const [files, setFiles] = useState<AssetUsage | null>(null); // storage meters come from the Assets library (hidden if it is unavailable)
   const owner = me.role === 'owner';
   const load = useCallback(() => api<B>('/api/billing').then(setB).catch((e) => setErr(e.message)), []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { api<AssetList>('/api/assets').then((r) => setFiles(r.usage)).catch(() => setFiles(null)); }, []);
 
   // Coming back from Stripe Checkout: the plan changes when Stripe's webhook arrives (a few seconds), so poll briefly.
   useEffect(() => {
@@ -69,6 +72,10 @@ export function Billing({ me }: { me: Me }) {
     ['WhatsApp numbers', `${b.usage.numbers} / ${b.plan.maxInstances}`, b.usage.numbers, b.plan.maxInstances],
     ['Team seats', `${b.usage.members} / ${b.plan.maxMembers}`, b.usage.members, b.plan.maxMembers],
   ];
+  if (files && files.limitBytes > 0) {
+    rows.push(['Media storage', `${fmtBytes(files.bytes)} / ${fmtBytes(files.limitBytes)}`, files.bytes, files.limitBytes]);
+    if (files.limitCount > 0) rows.push(['Media files', `${files.count} / ${files.limitCount}`, files.count, files.limitCount]);
+  }
   return (
     <section>
       <div className="row between"><div><h2>Billing</h2><p className="muted">You’re on the <b>{b.plan.name}</b> plan{s.status === 'active' && s.renewsAt && !s.cancelAtPeriodEnd ? <> · renews on {fmt(s.renewsAt)}</> : null}.</p></div>

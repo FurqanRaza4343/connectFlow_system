@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import httpx
 
+from . import media
 from .config import settings
 from .models import OutreachProfile
 
@@ -87,7 +88,7 @@ Hard rules:
 - Use ONLY facts from the knowledge base and the offer description above about {comp}. Never invent prices, client names, results or promises.
 - Tone: {TONES.get(p.tone, TONES['friendly'])}.
 - Language: professional English by default. If the lead's own messages are in Roman Urdu (Urdu written in Latin script), switch to natural, polite Roman Urdu for that conversation and stay in it.
-- First message: 3-5 short lines, plain text, no markdown, at most one emoji, no attachments. Open with something specific about THEIR company (from the research), connect it to one concrete thing {comp} can do for them, give ONE low-friction call to action (a quick call or a short reply), and end with a polite opt-out line such as "If this isn't relevant, just reply STOP and I won't message again."
+- First message: 3-5 short lines, plain text, no markdown, at most one emoji. Never attach files or write URLs yourself (the system may add the business's own image or link after your text; never say "see attached" or invent a link). Open with something specific about THEIR company (from the research), connect it to one concrete thing {comp} can do for them, give ONE low-friction call to action (a quick call or a short reply), and end with a polite opt-out line such as "If this isn't relevant, just reply STOP and I won't message again."
 - Format of the first message: line 1 "Hi <Company> team,"; a short body; the opt-out line; the signature "{sender} from {comp}" alone on the last line. Never open with "Congrats".
 - Sign as "{sender} from {comp}". If sincerely asked whether you are a bot, say you are {sender}'s assistant at {comp} and offer a call with the team.
 - Never be pushy. Do not mention scraping or "finding their number online"; reference their public business only if the research supports it.
@@ -255,12 +256,22 @@ Return ONLY a json object: {{"message": "<the WhatsApp text>"}}"""
     return str(parse_json(await chat(rules_text(p, company), prompt, json_mode=True)).get("message", "")).strip()
 
 
-async def write_reply(lead: dict, p: OutreachProfile, company: str, profile_text: str, history: list[dict]) -> dict:
-    """history = [{direction:'out'|'in', body}] oldest first, the lead's latest message last. Returns intent/topic/reply/needs_human."""
+async def write_reply(lead: dict, p: OutreachProfile, company: str, profile_text: str, history: list[dict], assets: list[dict] | None = None) -> dict:
+    """history = [{direction:'out'|'in', body}] oldest first, the lead's latest message last. Returns intent/topic/reply/needs_human/attach.
+    `assets` is the workspace's allow-list [{id,label,tags,kind}] the model may pick from; the caller re-validates whatever comes back."""
     await gate(p.tenant_id)
     latest = next((h["body"] for h in reversed(history) if h["direction"] == "in"), "")
+    pool = assets or []
     if settings.ai_fake:
-        return _fake_reply(latest, p.hold_pricing)
+        out = _fake_reply(latest, p.hold_pricing)
+        out["attach"] = media.fake_pick_for_topic(out["topic"], pool) if pool else []
+        return out
+    listing = "\n".join(f"- id={a['id']} | {a['kind']} | tags: {', '.join(a.get('tags', []))} | {str(a.get('label', ''))[:80]}" for a in pool)
+    asset_block = f"""
+<assets>
+{listing}
+</assets>
+Optionally set "attach" to up to 2 ids from <assets> that directly help answer the lead's message (for example portfolio images when they ask what you do, the brochure when they ask for details). Use ONLY ids listed above; never write a URL yourself; if nothing clearly helps, use [].""" if pool else ""
     convo = "\n".join(f"{(p.sender_name or 'Us') if h['direction'] == 'out' else 'Lead'}: {h['body']}" for h in history)
     prompt = f"""Continue this WhatsApp conversation. Reply to the lead's latest message.
 
@@ -278,10 +289,11 @@ Business type: {lead.get('business_type', '')}
 Classify the lead's latest message:
 - intent: one of interested, question, not_interested, stop, other
 - topic: one of pricing, services, scheduling, trust, complaint, bot_check, smalltalk, other   (pricing = any question about price, cost, rates, quote, budget, packages)
-Return ONLY a json object: {{"intent": "...", "topic": "...", "reply": "<WhatsApp text, in the lead's language>", "needs_human": true|false}}
-Set needs_human=true for pricing negotiation, legal/contract questions, complaints, requests to talk to a person, or anything you cannot answer from the knowledge base."""
+Return ONLY a json object: {{"intent": "...", "topic": "...", "reply": "<WhatsApp text, in the lead's language>", "needs_human": true|false{', "attach": []' if pool else ''}}}
+Set needs_human=true for pricing negotiation, legal/contract questions, complaints, requests to talk to a person, or anything you cannot answer from the knowledge base.{asset_block}"""
     out = parse_json(await chat(rules_text(p, company), prompt, json_mode=True))
     out.setdefault("intent", "other"); out.setdefault("topic", "other"); out.setdefault("reply", ""); out["needs_human"] = bool(out.get("needs_human"))
+    out["attach"] = [str(i) for i in out.get("attach") or [] if isinstance(i, str)] if pool and isinstance(out.get("attach"), list) else []
     if p.hold_pricing and out.get("topic") == "pricing":
         out["needs_human"] = True
     return out

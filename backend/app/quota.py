@@ -1,10 +1,15 @@
-"""Plan limits. One place decides whether a tenant may send another message today."""
+"""Plan limits. One place decides whether a tenant may send another message today.
+
+The per-day message count is a Redis counter (app/counters.py) rebuilt from `usage_events` when missing; the table stays the audit trail
+and the source of truth, and the tenant row lock still serialises parallel reservations so the limit can never be overshot."""
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from . import counters
+from .deps import rds
 from .models import Tenant, UsageEvent
 
 
@@ -13,13 +18,21 @@ def day_start() -> datetime:
     return n.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-def messages_today(db: Session, tenant_id: str) -> int:
+def _key(tenant_id: str, at: datetime | None = None) -> str:
+    return f"q:msg:{tenant_id}:{(at or day_start()).astimezone(timezone.utc):%Y%m%d}"
+
+
+def _db_messages_today(db: Session, tenant_id: str) -> int:
     return (
         db.query(func.count(UsageEvent.id))
         .filter(UsageEvent.tenant_id == tenant_id, UsageEvent.kind == "message", UsageEvent.at >= day_start())
         .scalar()
         or 0
     )
+
+
+def messages_today(db: Session, tenant_id: str) -> int:
+    return counters.get_int(rds, _key(tenant_id), lambda: _db_messages_today(db, tenant_id))
 
 
 def reserve_message(db: Session, tenant_id: str, instance_id: str | None, api_key_id: str | None) -> UsageEvent:
@@ -33,12 +46,15 @@ def reserve_message(db: Session, tenant_id: str, instance_id: str | None, api_ke
     ev = UsageEvent(tenant_id=tenant_id, instance_id=instance_id, api_key_id=api_key_id, kind="message")
     db.add(ev)
     db.commit()
+    counters.incr_int(rds, _key(tenant_id, ev.at))
     return ev
 
 
 def refund(db: Session, ev: UsageEvent) -> None:
+    tenant_id, at = ev.tenant_id, ev.at
     db.delete(ev)
     db.commit()
+    counters.decr_int(rds, _key(tenant_id, at))
 
 
 def last_days(db: Session, tenant_id: str, days: int = 7) -> list[dict]:

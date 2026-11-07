@@ -1,22 +1,28 @@
 """Lead-gen engine: batches, research, drafts, paced sender with warm-up, reply handling, follow-ups, scheduler state.
 Ported from legacy/orchestrator/src/{outreach,webhook,scheduler}.mjs and made tenant-aware. See docs/M3_CONTRACT.md."""
+import asyncio
+import logging
 import random
 import re
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import and_, exists, func, or_
 from sqlalchemy.orm import Session
 
-from . import ai, wa_client as wa
+from . import ai, assetlib, counters, media, storage, wa_client as wa
 from .alerts import preview, send_alert
 from .config import settings
 from .deps import rds
 from .enrich import fetch_site_text
-from .models import Batch, Draft, Instance, Lead, Message, Notification, OutreachProfile, Tenant
+from .models import Asset, Batch, Draft, DraftAsset, Instance, Lead, Message, Notification, OutreachProfile, Tenant
 from .quota import refund, reserve_message
 from .sqlutil import rows_to_dict
+
+log = logging.getLogger("outreach")
 
 WARMUP = [5, 10, 15, 20, 30, 40]  # first-message cap by number age in days (last value repeats)
 STOP_RE = re.compile(r"(?<!\bbus )\b(stop(?!\s+(?:by|at|in|over|near|on)\b)|unsubscribe|remove me|do not contact|don'?t contact|not interested|no thanks|mat bhej|band kar|nahi chahiye|na bhejein|ruk jao)\b", re.I)
@@ -83,8 +89,50 @@ def lead_dict(l: Lead) -> dict:
             "website": l.website, "linkedin": l.linkedin, "notes": l.notes}
 
 
+def _local_date(p: OutreachProfile) -> str:
+    return utcnow().astimezone(tz_of(p)).date().isoformat()
+
+
+def _db_day_counts(db: Session, tenant_id: str, p: OutreachProfile, which: str) -> dict[str, int]:
+    """The database truth behind a daily counter: outbound messages since local midnight, per number. which = first | out | media."""
+    q = db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "out", Message.created_at >= local_day_start(p))
+    if which == "first":
+        q = q.filter(Message.kind == "first")
+    elif which == "media":
+        q = q.filter(Message.media_kind.isnot(None))
+    return {(i or "-"): int(n) for i, n in q.group_by(Message.instance_id).all()}
+
+
+def day_counts(db: Session, tenant_id: str, p: OutreachProfile, which: str) -> dict[str, int]:
+    """{instance_id: count} for today (workspace-local day), served from Redis and rebuilt from the database when missing."""
+    return counters.hash_counts(rds, f"og:{which}:{tenant_id}:{_local_date(p)}", lambda: _db_day_counts(db, tenant_id, p, which))
+
+
+def count_sent(tenant_id: str, p: OutreachProfile, inst_id: str, kind: str, is_media: bool) -> None:
+    """Called AFTER the message row is committed: bump today's counters (an absent counter is rebuilt from the database later)."""
+    day = _local_date(p)
+    counters.hash_incr(rds, f"og:out:{tenant_id}:{day}", inst_id)
+    if kind == "first":
+        counters.hash_incr(rds, f"og:first:{tenant_id}:{day}", inst_id)
+    if is_media:
+        counters.hash_incr(rds, f"og:media:{tenant_id}:{day}", inst_id)
+        try:
+            k = f"media:sends:{utcnow():%Y%m%d%H}"
+            rds.incr(k)
+            rds.expire(k, 7200)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def ensure_counters(db: Session, tenant_id: str, p: OutreachProfile) -> None:
+    """Make sure today's three counters (first / out / media) exist: a missing one is rebuilt from the database NOW, before the send is committed."""
+    for which in ("first", "out", "media"):
+        day_counts(db, tenant_id, p, which)
+
+
 def sent_today(db: Session, tenant_id: str, p: OutreachProfile) -> int:
-    return db.query(func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "out", Message.kind == "first", Message.created_at >= local_day_start(p)).scalar() or 0
+    """First messages sent today (all numbers): the daily-limit figure."""
+    return sum(day_counts(db, tenant_id, p, "first").values())
 
 
 def pending_first(db: Session, tenant_id: str) -> int:
@@ -101,12 +149,15 @@ def warmup_cap(inst: Instance) -> int:
     return WARMUP[min(days, len(WARMUP) - 1)]
 
 
-def instance_rows(db: Session, tenant_id: str, p: OutreachProfile) -> list[dict]:
-    start = local_day_start(p)
-    counts = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "out", Message.kind == "first", Message.created_at >= start).group_by(Message.instance_id).all())
-    week = utcnow() - timedelta(days=7)
-    sent7 = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "out", Message.created_at >= week).group_by(Message.instance_id).all())
-    reps7 = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "in", Message.created_at >= week).group_by(Message.instance_id).all())
+def instance_rows(db: Session, tenant_id: str, p: OutreachProfile, week: bool = True) -> list[dict]:
+    """One row per number with today's first-message count and warm-up cap. `week=False` (the send path) skips the 7-day statistics."""
+    counts = day_counts(db, tenant_id, p, "first")
+    sent7: dict[str, int] = {}
+    reps7: dict[str, int] = {}
+    if week:
+        since = utcnow() - timedelta(days=7)
+        sent7 = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "out", Message.created_at >= since).group_by(Message.instance_id).all())
+        reps7 = rows_to_dict(db.query(Message.instance_id, func.count(Message.id)).filter(Message.tenant_id == tenant_id, Message.direction == "in", Message.created_at >= since).group_by(Message.instance_id).all())
     return [{"inst": i, "cap": warmup_cap(i), "sent": counts.get(i.id, 0), "sent7d": sent7.get(i.id, 0), "replies7d": reps7.get(i.id, 0)}
             for i in db.query(Instance).filter(Instance.tenant_id == tenant_id).order_by(Instance.created_at).all()]
 
@@ -145,6 +196,8 @@ async def make_first_draft(db: Session, lead: Lead, p: OutreachProfile, company:
     status = "approved" if (not p.require_approval and not p.dry_run and source == "ai") else "pending"
     d = Draft(tenant_id=lead.tenant_id, lead_id=lead.id, kind="first", body=body, status=status, source=source, note=note, batch_id=batch_id)
     db.add(d)
+    db.flush()
+    assetlib.attach(db, d, assetlib.pick_first(db, lead.tenant_id, assetlib.normalize_media(p.media)))  # ONE asset (rotating) or one link, never several bubbles
     if set_queued:
         lead.status = "queued"
     db.commit()
@@ -189,16 +242,100 @@ class NoWhatsApp(Exception):
     pass
 
 
-async def _deliver(inst: Instance, number: str, text: str) -> str:
-    """Send one text. Returns the chat id. FAKE mode never touches the gateway."""
+@dataclass
+class Part:
+    """One WhatsApp message of a draft: plain text, or one image / document / video (optionally with the draft text as its caption)."""
+
+    kind: str                 # text | image | document | video
+    text: str = ""            # text body or caption
+    asset: Asset | None = None
+    link_preview: dict[str, str] | None = None
+
+
+@dataclass
+class Sent:
+    chat_id: str
+    asset_ids: list[dict[str, Any]]
+    media_kind: str | None
+
+
+_media_sem: asyncio.Semaphore | None = None
+
+
+def _sem() -> asyncio.Semaphore:
+    """At most MEDIA_UPLOAD_CONCURRENCY simultaneous uploads per worker, so one slow upload never starves the text sends of other workspaces."""
+    global _media_sem
+    if _media_sem is None:
+        _media_sem = asyncio.Semaphore(media.MEDIA_UPLOAD_CONCURRENCY)
+    return _media_sem
+
+
+def plan_parts(body: str, assets: list[Asset], kind: str, blocked_reason: str = "") -> tuple[list[Part], str]:
+    """Turn a draft (text + attachments) into the WhatsApp messages to send, applying the safe-sending rules. Pure function.
+
+    A first message is always ONE message (image/PDF/video with the text as caption, or text with a link preview).
+    Replies and follow-ups: the first file carries the text as its caption; further files follow as separate messages.
+    Returns (parts, note) where note explains anything that was left out."""
+    files = [a for a in assets if a.kind in assetlib.FILE_KINDS]
+    links = [a for a in assets if a.kind == "link"]
+    preview = {"url": links[0].link_url, "title": links[0].link_title or links[0].label} if links else None
+    note = ""
+    if files and blocked_reason:
+        note = f"Sent as text only: {blocked_reason}."
+        files = []
+    if kind == "first":
+        files = files[:1]
+    if not files:
+        return [Part("text", body, link_preview=preview)], note
+    if len(body) <= media.CAPTION_MAX:
+        return [Part(files[0].kind, body, files[0])] + [Part(a.kind, "", a) for a in files[1:]], note
+    if kind == "first":  # a first message is never split into several bubbles
+        return [Part("text", body, link_preview=preview)], "Sent as text only: the message is longer than a WhatsApp caption (1024 characters)."
+    return [Part("text", body, link_preview=preview)] + [Part(a.kind, "", a) for a in files], note  # a caption is limited to 1024 characters: text first, then the files
+
+
+def _draft_assets(db: Session, d: Draft) -> list[Asset]:
+    rows = db.query(Asset).join(DraftAsset, DraftAsset.asset_id == Asset.id).filter(DraftAsset.draft_id == d.id, Asset.tenant_id == d.tenant_id).order_by(DraftAsset.position).all()
+    return list(rows)
+
+
+async def _check(inst: Instance, number: str) -> str:
+    """The chat id for a number; raises NoWhatsApp when it is not on WhatsApp. FAKE mode never touches the gateway."""
     if settings.outreach_fake_send:
         return f"{number}@c.us"
     chk = await wa.check_number(inst.openwa_id, number)
     if not chk.get("exists"):
         raise NoWhatsApp()
-    chat_id = chk.get("whatsappId") or f"{number}@c.us"
-    await wa.send_text(inst.openwa_id, chat_id, text)
+    return str(chk.get("whatsappId") or f"{number}@c.us")
+
+
+async def _deliver(inst: Instance, number: str, text: str) -> str:
+    """Send one plain text (kept for callers that do not carry media). Returns the chat id."""
+    chat_id = await _check(inst, number)
+    if not settings.outreach_fake_send:
+        await wa.send_text(inst.openwa_id, chat_id, text)
     return chat_id
+
+
+async def _send_part(db: Session, inst: Instance, chat_id: str, part: Part) -> dict[str, Any]:
+    """Send one part. Returns {"assetId", "variantId"} for a file (variant rotation), {} for text. Raises WAError / StorageError."""
+    if part.kind == "text":
+        if not settings.outreach_fake_send:
+            await wa.send_text(inst.openwa_id, chat_id, part.text, part.link_preview)
+        return {}
+    assert part.asset is not None
+    vid, backend, key, mime = assetlib.choose_variant(db, part.asset)
+    if not settings.outreach_fake_send:
+        data = await assetlib.read_file(backend, key)
+        async with _sem():
+            try:
+                await wa.send_media(inst.openwa_id, chat_id, part.kind, data=data, mimetype=mime, filename=f"{(part.asset.label or 'document')[:60]}.pdf", caption=part.text)
+            except wa.WAError as e:
+                if e.status in (400, 404, 413, 422):
+                    raise  # permanent: retrying cannot help
+                await asyncio.sleep(2)  # transient (gateway busy / 5xx / timeout): one retry
+                await wa.send_media(inst.openwa_id, chat_id, part.kind, data=data, mimetype=mime, filename=f"{(part.asset.label or 'document')[:60]}.pdf", caption=part.text)
+    return {"assetId": part.asset.id, "variantId": vid}
 
 
 def _back_to_pending(db: Session, d: Draft, note: str) -> str:
@@ -213,6 +350,14 @@ def _fail(db: Session, d: Draft, note: str) -> str:
     return "failed"
 
 
+def media_block_reason(db: Session, inst: Instance, p: OutreachProfile) -> str:
+    """'' = this number may send media now (see media.media_blocked_reason for the rules)."""
+    age = max(0, (utcnow() - inst.created_at).days)
+    out = day_counts(db, inst.tenant_id, p, "out").get(inst.id, 0)
+    med = day_counts(db, inst.tenant_id, p, "media").get(inst.id, 0)
+    return media.media_blocked_reason(age, len(WARMUP) - 1, med, out)
+
+
 async def send_draft(db: Session, d: Draft) -> str:
     """Send one claimed ('sending') draft. Returns sent | pending | failed."""
     lead = db.get(Lead, d.lead_id)
@@ -224,7 +369,7 @@ async def send_draft(db: Session, d: Draft) -> str:
         return _fail(db, d, f"lead already {lead.status}")
     if not lead.whatsapp:
         return _fail(db, d, "lead has no WhatsApp number")
-    rows = instance_rows(db, d.tenant_id, p)
+    rows = instance_rows(db, d.tenant_id, p, week=False)
 
     if d.kind == "first":
         # idempotency: never a second first message to the same lead/number (e.g. a crash between send and DB write)
@@ -263,25 +408,61 @@ async def send_draft(db: Session, d: Draft) -> str:
             if not inst:
                 return _back_to_pending(db, d, "No connected WhatsApp number - link one first")
 
+    ensure_counters(db, d.tenant_id, p)  # all daily counters exist BEFORE the message row is committed, so the increment afterwards is never skipped
+    assets = _draft_assets(db, d)
+    parts, skip_note = plan_parts(d.body, assets, d.kind, media_block_reason(db, inst, p) if any(a.kind in assetlib.FILE_KINDS for a in assets) else "")
+
     try:
         ev = reserve_message(db, d.tenant_id, inst.id, None)
     except HTTPException as e:
         return _back_to_pending(db, d, str(e.detail))
+    sent_parts: list[Sent] = []
+    note = skip_note
     try:
-        chat_id = await _deliver(inst, lead.whatsapp, d.body)
+        chat_id = await _check(inst, lead.whatsapp)
+        for i, part in enumerate(parts):
+            if i:
+                try:
+                    ev = reserve_message(db, d.tenant_id, inst.id, None)  # every WhatsApp message counts against the plan, not just the first
+                except HTTPException as e:
+                    note = f"Stopped after part {i}: {e.detail}"[:300]
+                    break
+                if not settings.outreach_fake_send:
+                    await asyncio.sleep(random.uniform(*media.PART_GAP_SECONDS))  # human-like pause between the parts
+            try:
+                ref = await _send_part(db, inst, chat_id, part)
+            except (wa.WAError, storage.StorageError):
+                if i:
+                    refund(db, ev)
+                raise
+            sent_parts.append(Sent(chat_id, [ref] if ref else [], part.kind if part.kind != "text" else None))
     except NoWhatsApp:
         refund(db, ev)
         lead.status = "no_whatsapp"
         return _fail(db, d, "number is not on WhatsApp")
-    except wa.WAError as e:
-        refund(db, ev)
-        notify(db, d.tenant_id, "failed", f"Send failed: {lead.company}", str(e)[:200], link="approvals", lead_id=lead.id)
-        return _fail(db, d, str(e))
-    db.add(Message(tenant_id=d.tenant_id, lead_id=lead.id, instance_id=inst.id, chat_id=chat_id, direction="out", body=d.body, kind=d.kind))
-    d.status, d.sending_at, d.note = "sent", None, ""
+    except (wa.WAError, storage.StorageError) as e:
+        if not sent_parts:
+            refund(db, ev)
+            if isinstance(e, storage.StorageError):
+                reason = f"The attached file could not be read: {e}"
+            elif any(x.kind != "text" for x in parts):
+                reason = f"Media upload failed after a retry: {e}"
+            else:
+                reason = str(e)
+            notify(db, d.tenant_id, "failed", f"Send failed: {lead.company}", str(reason)[:200], link="approvals", lead_id=lead.id)
+            return _fail(db, d, str(reason))
+        note = f"Part {len(sent_parts) + 1} of {len(parts)} failed ({str(e)[:120]}); the first part was delivered."
+
+    for n, sp in enumerate(sent_parts):
+        pa = parts[n].asset
+        db.add(Message(tenant_id=d.tenant_id, lead_id=lead.id, instance_id=inst.id, chat_id=sp.chat_id, direction="out", body=parts[n].text or (f"[{sp.media_kind}] {pa.label}" if pa else d.body),
+                       kind=d.kind, media_kind=sp.media_kind, asset_ids=sp.asset_ids))
+    d.status, d.sending_at, d.note = "sent", None, note
     if d.kind == "first":
         lead.status, lead.sent_at, lead.first_message, lead.instance_id, lead.followup_stage = "contacted", utcnow(), d.body, inst.id, 0
     db.commit()
+    for n, sp in enumerate(sent_parts):
+        count_sent(d.tenant_id, p, inst.id, d.kind if n == 0 else "extra", sp.media_kind is not None)
     return "sent"
 
 
@@ -317,7 +498,9 @@ def _history(db: Session, lead_id: str, limit: int = 30) -> list[dict]:
     return [{"direction": m.direction, "body": m.body} for m in reversed(rows)]
 
 
-async def handle_inbound(db: Session, inst: Instance, number: str, text: str, chat_id: str) -> dict | None:
+async def handle_inbound(db: Session, inst: Instance, number: str, text: str, chat_id: str, media_kind: str | None = None) -> dict | None:
+    """An inbound message for one of our numbers. `text` may be empty when the lead sent only a file (media_kind says what): it is stored as a
+    placeholder such as "[image]" and a human is told, because the AI cannot read attachments."""
     tid = inst.tenant_id
     lead = None
     if chat_id:
@@ -330,11 +513,19 @@ async def handle_inbound(db: Session, inst: Instance, number: str, text: str, ch
     p = profile_of(db, tid)
     tenant = db.get(Tenant, tid)
     tenant_name = tenant.name if tenant else ""
-    db.add(Message(tenant_id=tid, lead_id=lead.id, instance_id=inst.id, chat_id=chat_id or f"{number}@c.us", direction="in", body=text, kind="reply"))
+    placeholder = f"[{media_kind}]" if media_kind else ""
+    db.add(Message(tenant_id=tid, lead_id=lead.id, instance_id=inst.id, chat_id=chat_id or f"{number}@c.us", direction="in", body=text or placeholder, kind="reply", media_kind=media_kind))
     if not lead.instance_id:
         lead.instance_id = inst.id  # the conversation lives on the number the lead wrote to
     db.commit()
     via = inst.phone or inst.label
+    if media_kind and not text:
+        if lead.status != "stop":
+            lead.status, lead.last_reply = "replied", placeholder
+            db.commit()
+        notify(db, tid, "needs_human", f"{lead.company} sent {'an' if media_kind == 'image' else 'a'} {media_kind}", f"{placeholder} - open the Inbox to read it on your phone and answer.", link="inbox", lead_id=lead.id)
+        await send_alert(db, tid, "needs_human", f"{lead.company} sent {'an' if media_kind == 'image' else 'a'} {media_kind}", [f"{lead.company} sent {placeholder} on {via}.", "ConnectFlow does not download attachments: open the chat in WhatsApp and reply yourself, or use the Inbox."])
+        return {"lead": lead.id, "action": "media_received", "needsHuman": True}
 
     if len(text) <= 60 and STOP_RE.search(text):
         lead.status, lead.last_reply, lead.followup_stage = "stop", text[:2000], 99
@@ -345,9 +536,14 @@ async def handle_inbound(db: Session, inst: Instance, number: str, text: str, ch
 
     lead.status, lead.last_reply = "replied", text[:2000]
     db.commit()
+    cfg = assetlib.normalize_media(p.media)
+    pool: list[dict[str, Any]] = []
+    if cfg["replies"]["enabled"] and cfg["replies"]["allowTags"]:
+        pool = [{"id": a.id, "label": a.label, "tags": list(a.tags or []), "kind": a.kind} for a in db.query(Asset).filter(Asset.tenant_id == tid).order_by(Asset.created_at).all()
+                if set(cfg["replies"]["allowTags"]).intersection(a.tags or []) and (a.storage_key or a.kind == "link")]
     try:
         research = lead.research
-        out = await ai.write_reply(lead_dict(lead), p, tenant_name, research, _history(db, lead.id))
+        out = await ai.write_reply(lead_dict(lead), p, tenant_name, research, _history(db, lead.id), assets=pool)
     except ai.AIError as e:
         notify(db, tid, "needs_human", f"{lead.company} replied (AI unavailable)", text[:200], link="inbox", lead_id=lead.id)
         await send_alert(db, tid, "needs_human", f"{lead.company} replied and needs you", [f"{lead.company} wrote on {via}: \"{preview(text)}\"", "The AI could not draft an answer - open the Inbox to reply yourself."])
@@ -366,6 +562,10 @@ async def handle_inbound(db: Session, inst: Instance, number: str, text: str, ch
         d = Draft(tenant_id=tid, lead_id=lead.id, kind="reply", body=reply, incoming=text, status="approved" if auto else "pending", source="ai", needs_human=needs_human, note=note,
                   not_before=utcnow() + timedelta(seconds=random.uniform(15, 45)) if auto else utcnow())
         db.add(d)
+        db.flush()
+        if pool and not needs_human:  # the model only proposes ids; the server keeps those on the allow-list (tag match, same workspace)
+            chosen = media.select_for_reply(pool, cfg["replies"]["allowTags"], [str(i) for i in (out.get("attach") or []) if isinstance(i, str)])
+            assetlib.attach(db, d, assetlib.assets_by_ids(db, tid, chosen))
         db.commit()
     notify(db, tid, "needs_human" if needs_human else "reply", f"{lead.company} replied" + (" - needs you" if needs_human else ""), text[:200], link="inbox", lead_id=lead.id)
     if needs_human:
@@ -375,23 +575,23 @@ async def handle_inbound(db: Session, inst: Instance, number: str, text: str, ch
 
 # ------------------------------------------------------------------ follow-ups
 async def queue_followups(db: Session, tenant_id: str, p: OutreachProfile, limit: int = 20) -> int:
+    """Draft the follow-ups that are due. ONE query selects the candidates (contacted, no reply yet, no open follow-up draft, due by day 1/day 2),
+    bounded by `limit * 3` so a few leads whose AI call keeps failing can never starve the rest."""
     if not p.followups_enabled:
         return 0
     tenant = db.get(Tenant, tenant_id)
     tenant_name = tenant.name if tenant else ""
     now = utcnow()
+    has_reply = exists().where(and_(Message.lead_id == Lead.id, Message.direction == "in"))
+    has_open = exists().where(and_(Draft.lead_id == Lead.id, Draft.kind == "followup", Draft.status.in_(OPEN_DRAFT)))
+    due = or_(and_(Lead.followup_stage == 0, Lead.sent_at <= now - timedelta(days=p.followup_day1)), and_(Lead.followup_stage == 1, Lead.sent_at <= now - timedelta(days=p.followup_day2)))
+    leads = (db.query(Lead).filter(Lead.tenant_id == tenant_id, Lead.status == "contacted", Lead.sent_at.isnot(None), due, ~has_reply, ~has_open)
+             .order_by(Lead.sent_at).limit(limit * 3).all())
+    cfg = assetlib.normalize_media(p.media)
     n = 0
-    leads = db.query(Lead).filter(Lead.tenant_id == tenant_id, Lead.status == "contacted", Lead.followup_stage.in_((0, 1)), Lead.sent_at.isnot(None)).order_by(Lead.sent_at).all()
     for lead in leads:
         if n >= limit:
             break
-        days = p.followup_day1 if lead.followup_stage == 0 else p.followup_day2
-        if lead.sent_at is None or lead.sent_at > now - timedelta(days=days):
-            continue
-        if db.query(Message.id).filter(Message.lead_id == lead.id, Message.direction == "in").first():
-            continue
-        if db.query(Draft.id).filter(Draft.lead_id == lead.id, Draft.kind == "followup", Draft.status.in_(OPEN_DRAFT)).first():
-            continue
         try:
             body = await ai.write_followup(lead_dict(lead), p, tenant_name, lead.research, _history(db, lead.id), lead.followup_stage + 1)
         except ai.AIError:
@@ -399,7 +599,10 @@ async def queue_followups(db: Session, tenant_id: str, p: OutreachProfile, limit
         if not body:
             continue
         status = "approved" if (not p.require_approval and not p.dry_run) else "pending"
-        db.add(Draft(tenant_id=tenant_id, lead_id=lead.id, kind="followup", body=body, status=status, source="ai"))
+        d = Draft(tenant_id=tenant_id, lead_id=lead.id, kind="followup", body=body, status=status, source="ai")
+        db.add(d)
+        db.flush()
+        assetlib.attach(db, d, assetlib.assets_by_ids(db, tenant_id, cfg["followup1" if lead.followup_stage == 0 else "followup2"]["assetIds"]))
         lead.followup_stage += 1
         db.commit()
         n += 1

@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     # Two-factor authentication: None = required for platform admins exactly when COOKIE_SECURE=true (production)
     admin_2fa_required: bool | None = None
 
+    # Media library storage (see docs/MEDIA.md). local = Docker volume at ASSETS_DIR; cloudinary = Cloudinary REST API (CLOUDINARY_URL=cloudinary://key:secret@cloud)
+    storage_backend: str = "local"
+    assets_dir: str = "/data/assets"
+    cloudinary_url: str = ""
+    cloudinary_api_base: str = "https://api.cloudinary.com/v1_1"   # tests point this at a fake server
+
     # Signup abuse controls
     disposable_email_allow: str = ""       # comma separated domains that are allowed even though they are on the disposable list
     turnstile_site_key: str = ""           # Cloudflare Turnstile (optional): both keys set = captcha on signup / forgot / login after failures
@@ -107,6 +113,10 @@ class Settings(BaseSettings):
                     ok = False
                 if not ok:
                     raise ValueError(f"{name.upper()} is not a valid Fernet key (urlsafe base64 of 32 bytes)")
+        if self.storage_backend not in ("local", "cloudinary"):
+            raise ValueError("STORAGE_BACKEND must be local or cloudinary")
+        if self.storage_backend == "cloudinary" and not self.cloudinary_url.startswith("cloudinary://"):
+            raise ValueError("STORAGE_BACKEND=cloudinary needs CLOUDINARY_URL=cloudinary://<api_key>:<api_secret>@<cloud_name>")
         if bool(self.turnstile_site_key) != bool(self.turnstile_secret_key):
             raise ValueError("Set both TURNSTILE_SITE_KEY and TURNSTILE_SECRET_KEY, or neither")
         return self

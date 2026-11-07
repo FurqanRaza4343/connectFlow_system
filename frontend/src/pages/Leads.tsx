@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, Instance, Me, Via, viaText } from '../api';
 import { Modal } from '../components/Modal';
+import { Attachment, AttachmentStrip } from '../components/media';
 
 type Lead = {
   id: string; listId: string | null; company: string; contactName: string; role: string; businessType: string; address: string; phoneRaw: string; whatsapp: string;
   country: string; website: string; email: string; linkedin: string; facebook: string; notes: string; status: string; research: string; firstMessage: string; lastReply: string; createdAt: string;
   enriched?: boolean; via?: Via; instanceId?: string | null; sentAt?: string | null; followupStage?: number;
 };
-type Thread = { messages: { id: string; direction: 'in' | 'out'; body: string; kind: string; at: string }[]; drafts: { id: string; body: string; status: string; kind: string }[] };
+type Thread = { messages: { id: string; direction: 'in' | 'out'; body: string; kind: string; at: string; attachments?: Attachment[]; linkUrl?: string | null; mediaKind?: string | null }[]; drafts: { id: string; body: string; status: string; kind: string }[] };
 type LeadsRes = { rows: Lead[]; total: number; page: number; pages: number; counts: Record<string, number>; withNumber: number };
 type List = { id: string; name: string; count: number };
 type Analyze = { headers: string[]; rowCount: number; sample: Record<string, string>[]; mapping: Record<string, string | null>; fields: string[] };
@@ -186,7 +187,7 @@ function LeadDialog({ lead, onClose, onSave, onDelete }: { lead: Partial<Lead>; 
         {lead.lastReply && <div className="panel2"><b>Last reply</b><p>{lead.lastReply}</p></div>}
         {thread && thread.messages.length > 0 && (
           <div className="panel2"><b>Conversation</b>
-            <div className="thread-mini">{thread.messages.slice(-5).map((m) => <div key={m.id} className={`bubble ${m.direction}`}><div>{m.body.slice(0, 220)}</div><small>{new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></div>)}</div>
+            <div className="thread-mini">{thread.messages.slice(-5).map((m) => <div key={m.id} className={`bubble ${m.direction}`}><div>{m.body.slice(0, 220)}</div><AttachmentStrip items={m.attachments} linkUrl={m.linkUrl} /><small>{new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</small></div>)}</div>
           </div>
         )}
         <div className="row between">{onDelete ? <button type="button" className="danger" onClick={onDelete}>Delete</button> : <span />}<button className="primary" disabled={busy || !d.company.trim()}>{busy ? 'Saving…' : 'Save'}</button></div>

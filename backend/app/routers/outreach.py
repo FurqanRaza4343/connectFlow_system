@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import outreach as og
+from .. import assetlib, outreach as og
 from ..db import get_db
 from ..deps import Ctx, need_role, TCtx
 from ..models import Batch, Draft, Instance, Lead, Message, Notification
@@ -101,6 +101,7 @@ def inbox(filter: str = Query("all", pattern="^(all|needs_human|replied)$"), ins
     tail = db.query(Message).filter(Message.tenant_id == tid, Message.lead_id.in_(has_in or ["-"])).distinct(Message.lead_id).order_by(Message.lead_id, Message.created_at.desc()).all()
     leads = {l.id: l for l in db.query(Lead).filter(Lead.tenant_id == tid, Lead.id.in_(has_in or ["-"])).all()}
     insts = {i.id: i for i in db.query(Instance).filter(Instance.tenant_id == tid).all()}
+    tail_atts = assetlib.message_attachments(db, tail)
     rows: list[dict[str, Any]] = []
     for m in tail:
         l = leads.get(m.lead_id or "")
@@ -114,7 +115,7 @@ def inbox(filter: str = Query("all", pattern="^(all|needs_human|replied)$"), ins
             continue
         if filter == "replied" and l.status != "replied":
             continue
-        rows.append({"leadId": l.id, "company": l.company, "whatsapp": l.whatsapp, "status": l.status, "lastMessage": m.body[:200], "lastDirection": m.direction, "lastAt": og.iso(m.created_at), "needsHuman": l.id in nh,
+        rows.append({"leadId": l.id, "company": l.company, "whatsapp": l.whatsapp, "status": l.status, "lastMessage": m.body[:200], "lastDirection": m.direction, "lastAt": og.iso(m.created_at), "needsHuman": l.id in nh, "mediaKind": m.media_kind, "attachments": tail_atts.get(m.id, []), "linkUrl": assetlib.link_of(tail_atts.get(m.id, [])),
                      "instanceId": conv_inst, "via": {"id": i.id, "label": i.label, "phone": i.phone, "status": i.status} if i else None})
     rows.sort(key=lambda r: str(r["lastAt"] or ""), reverse=True)
     return rows[:100]

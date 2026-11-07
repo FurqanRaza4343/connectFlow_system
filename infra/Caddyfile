@@ -36,13 +36,28 @@
 	import security
 	encode zstd gzip
 	# /internal/* (gateway -> api) is intentionally NOT routed: it exists only on the private Docker network.
-	handle /api/* {
+	# Media library uploads (images, PDFs, short videos): the ONLY route that accepts a large body.
+	handle /api/assets* {
+		request_body {
+			max_size 25MB
+		}
 		reverse_proxy api:8000 {
 			header_up X-Forwarded-For {remote_host}
 		}
 	}
-	# public API (Bearer keys, server-to-server)
+	handle /api/* {
+		request_body {
+			max_size 6MB
+		}
+		reverse_proxy api:8000 {
+			header_up X-Forwarded-For {remote_host}
+		}
+	}
+	# public API (Bearer keys, server-to-server): small JSON bodies only
 	handle /v1/* {
+		request_body {
+			max_size 1MB
+		}
 		reverse_proxy api:8000 {
 			header_up X-Forwarded-For {remote_host}
 		}

@@ -78,3 +78,17 @@ Recipients = owner + admins + extras. Events: needs-human reply (or AI unavailab
 - `POST /admin/users/{id}/resend-verification` (409 if already verified) -> `{ok}`; audit `admin.user.resend_verification`.
 - `POST /admin/users/{id}/send-password-reset` -> `{ok}`; audit `admin.user.send_reset`. Both: 429 if repeated within 2 minutes for the same user.
 - `GET /admin/customers/{id}` `instances[]` gain `outreachEnabled`, `sentToday`, `sent7d`, `replies7d` (counters only, no message content).
+
+## Media (M5+): library, attachments, safe-sending rules  (full reference: `docs/MEDIA.md`)
+- Media library (`/api/assets`, viewer reads / operator writes, 404 across workspaces): `GET` -> `{items:[{id,kind:'image'|'document'|'video'|'link',label,tags,mime,sizeBytes,previewUrl,thumbUrl,linkUrl,usedCount,createdAt,variants[]}], usage:{bytes,limitBytes,count,limitCount,plan}}`;
+  `POST` (multipart `file,label,tags`), `POST /link`, `PATCH /{id}`, `DELETE /{id}` (409 while attached to a pending/approved/sending draft), `POST|DELETE /{id}/variants[/{vid}]` (max 5), `GET /{id}/file[?thumb=1|variant=id]` (authenticated bytes, never public).
+  Limits: image 5 MB, PDF 10 MB, video 16 MB; plan storage/items Trial 20 MB/5, Starter 200 MB/30, Growth 2 GB/200; 30 uploads per hour. 402 payload `{detail,limit,used,plan,upgradeUrl}`.
+- `GET/PUT /outreach/profile` gain `media:{firstMessage:{mode:'off'|'image'|'link',assetIds},followup1:{assetIds},followup2:{assetIds},replies:{enabled,allowTags}}` (PUT without `media` keeps the saved block; ids must be the workspace's own).
+- Draft objects gain `attachments:[{assetId,kind,label,thumbUrl,linkUrl}]` and `linkUrl|null`; thread messages and inbox rows gain `mediaKind`, `attachments`, `linkUrl`. `PUT /drafts/{id}/attachments {assetIds}` edits a waiting draft.
+- Sending: a first message is ONE WhatsApp message (file + caption, or text with link preview); follow-ups/replies send the first file with the text as caption and further files as separate parts (each part counts against the daily quota; the quota can stop a draft after part 1, noted on the draft). Media is only sent from a number older than 3 days, and while the number warms up (< 5 days) at most 30 % of its day's messages may carry media; otherwise the message goes out as text only with the reason in `drafts.note`.
+- AI replies attach only ids from the tag allow-list (`replies.allowTags`, server re-validated, max 3, none when a human is needed). `OUTREACH_FAKE_SEND` also fakes media.
+- Inbound image/document/voice/sticker messages are stored as `[image]`… placeholders with `media_kind`, mark the lead replied, notify a human (needs_human + e-mail) and create no AI draft.
+- `POST /v1/messages` accepts `media:{type, assetId|url, caption?, filename?}`; `text` is optional when `media` is present.
+- `GET /api/admin/capacity` gains `storage:{backend,assetsTotal,bytesTotal,mediaSends1h,senderQueueDepth,uploadFailures1h}`; `GET /api/billing` usage gains `assets{bytes,limitBytes,count,limitCount,plan}` and the plans gain `assetBytesLimit`, `assetCountLimit`.
+- Scaling: per-send COUNT queries are Redis daily counters rebuilt from the database (`q:msg:*`, `og:first|out|media:*`); composite indexes on messages/usage_events/leads; follow-up selection is one bounded query; each workspace sends in its own task.
+

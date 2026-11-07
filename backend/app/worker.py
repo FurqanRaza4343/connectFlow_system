@@ -180,10 +180,11 @@ async def _supervise(name: str, fn: Callable[[], Awaitable[None]]) -> None:
 
 async def main() -> None:
     from .outreach_worker import run as outreach_run  # imported here: the API image does not need it at import time
+    from .assets_sweep import assets_loop
     from .reaper import reaper_loop
     from .retention import retention_loop
 
-    loops = [("webhooks", webhook_loop), ("outreach", outreach_run), ("reaper", reaper_loop), ("retention", retention_loop), ("heartbeat", heartbeat_loop), ("billing", billing_loop)]
+    loops = [("webhooks", webhook_loop), ("outreach", outreach_run), ("reaper", reaper_loop), ("retention", retention_loop), ("heartbeat", heartbeat_loop), ("billing", billing_loop), ("assets", assets_loop)]
     await asyncio.gather(*(_supervise(name, fn) for name, fn in loops))
 
 

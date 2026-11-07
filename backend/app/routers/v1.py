@@ -1,18 +1,18 @@
 """Public API (Bearer cf_live_...). Server-to-server: no cookies, no CSRF, scoped keys, same limits as the dashboard.
 Every request is checked by app/telemetry.py (per-IP limit before auth, suspension, IP allow-list, usage telemetry, leak rules)."""
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy.orm import Session
 
-from .. import idempotency
+from .. import assetlib, idempotency, storage
 from ..db import get_db
 from ..deps import rds
-from ..messaging import send_text
-from ..models import ApiKey, Instance, Tenant
+from ..messaging import fetch_remote_media, send_media, send_text
+from ..models import ApiKey, Asset, Instance, Tenant
 from ..telemetry import check_active_hours, client_ip, ip_allowed, record_event, record_use
 from .keys import hash_key
 
@@ -63,10 +63,31 @@ def api_key_ctx(request: Request, authorization: str = Header(default=""), user_
     return KeyCtx(k, t)
 
 
+class MediaIn(BaseModel):
+    type: Literal["image", "document", "video"]
+    assetId: str | None = Field(default=None, description="A file from your media library (Outreach > Assets)")
+    url: str | None = Field(default=None, max_length=500, description="OR a public https URL of the file (we download it, validate it and send it)")
+    caption: str = Field(default="", max_length=1024)
+    filename: str = Field(default="", max_length=255, description="Shown for documents")
+
+    @model_validator(mode="after")
+    def _one_source(self) -> "MediaIn":
+        if bool(self.assetId) == bool(self.url):
+            raise ValueError("send exactly one of media.assetId or media.url")
+        return self
+
+
 class MessageIn(BaseModel):
     instance: str = Field(description="Instance id (from GET /v1/instances)")
     to: str = Field(description="International number with country code, e.g. 923001234567")
-    text: str = Field(min_length=1, max_length=4096)
+    text: str = Field(default="", max_length=4096, description="The message. With `media` it is the caption (up to 1024 characters) unless media.caption is set")
+    media: MediaIn | None = None
+
+    @model_validator(mode="after")
+    def _text_or_media(self) -> "MessageIn":
+        if self.media is None and not self.text.strip():
+            raise ValueError("`text` must be 1-4096 characters")
+        return self
 
 
 @router.get("/instances")
@@ -80,7 +101,7 @@ def instances(c: KeyCtx = Depends(api_key_ctx), db: Session = Depends(get_db)) -
 @router.post("/messages", status_code=202)
 async def messages(body: MessageIn, response: Response, c: KeyCtx = Depends(api_key_ctx), db: Session = Depends(get_db),
                    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")) -> Any:
-    """Send a text message. Optional `Idempotency-Key` header (<= 64 chars): a retry with the same key and body returns the first result
+    """Send a text message, or an image / PDF / video with an optional caption (`media`). Optional `Idempotency-Key` header (<= 64 chars): a retry with the same key and body returns the first result
     (header `Idempotent-Replayed: true`) without sending again."""
     idem = idempotency.validate_key(idempotency_key)
     state = idempotency.Begin(tracked=False)
@@ -96,7 +117,25 @@ async def messages(body: MessageIn, response: Response, c: KeyCtx = Depends(api_
         if not inst:
             raise HTTPException(404, "instance not found")
         check_active_hours(db, c.key)
-        result = await send_text(db, c.tenant, inst, body.to, body.text, api_key_id=c.key.id)
+        if body.media is None:
+            result = await send_text(db, c.tenant, inst, body.to, body.text, api_key_id=c.key.id)
+        else:
+            data, mime, fname = b"", "", body.media.filename
+            if body.media.assetId:
+                a = db.query(Asset).filter(Asset.id == body.media.assetId, Asset.tenant_id == c.tenant.id).first()
+                if not a:
+                    raise HTTPException(404, "media asset not found")
+                if a.kind != body.media.type:
+                    raise HTTPException(422, f"That asset is a {a.kind}, not a {body.media.type}")
+                _, backend, key, mime = assetlib.choose_variant(db, a)
+                try:
+                    data = await assetlib.read_file(backend, key)
+                except storage.StorageError as e:
+                    raise HTTPException(502, f"The stored file could not be read: {e}")
+                fname = fname or f"{(a.label or 'document')[:60]}.pdf"
+            else:
+                data, mime = await fetch_remote_media(body.media.url or "", body.media.type)
+            result = await send_media(db, c.tenant, inst, body.to, body.media.type, data, mime, body.media.caption or body.text, fname, api_key_id=c.key.id)
     except BaseException:
         if idem and state.tracked:
             idempotency.abort(rds, c.tenant.id, idem)  # a failed attempt must not block the client's retry

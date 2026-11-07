@@ -5,10 +5,10 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from .. import ai, outreach as og
+from .. import ai, assetlib, media, outreach as og
 from ..db import get_db
 from ..deps import Ctx, need_role, TCtx
-from ..models import Draft, Instance, Lead, Tenant
+from ..models import Draft, DraftAsset, Instance, Lead, Tenant
 from ..sqlutil import rows_to_dict
 
 router = APIRouter(prefix="/api/drafts", tags=["drafts"])
@@ -19,10 +19,11 @@ def _via(i: Instance | None) -> dict[str, Any] | None:
     return {"id": i.id, "label": i.label, "phone": i.phone, "status": i.status} if i else None
 
 
-def draft_out(d: Draft, lead: Lead | None, insts: dict | None = None) -> dict:
+def draft_out(d: Draft, lead: Lead | None, insts: dict | None = None, atts: list[dict] | None = None) -> dict:
     # replies / follow-ups are pinned to the number of the conversation; a first message gets its number when it is sent
     pinned = (insts or {}).get(lead.instance_id) if (lead and insts is not None and d.kind != "first") else None
-    return {"via": _via(pinned), "id": d.id, "leadId": d.lead_id, "company": lead.company if lead else "", "whatsapp": lead.whatsapp if lead else "", "kind": d.kind, "body": d.body, "incoming": d.incoming,
+    atts = atts or []
+    return {"attachments": atts, "linkUrl": assetlib.link_of(atts), "via": _via(pinned), "id": d.id, "leadId": d.lead_id, "company": lead.company if lead else "", "whatsapp": lead.whatsapp if lead else "", "kind": d.kind, "body": d.body, "incoming": d.incoming,
             "status": d.status, "note": d.note, "source": d.source, "needsHuman": d.needs_human, "createdAt": og.iso(d.created_at)}
 
 
@@ -46,7 +47,8 @@ def list_drafts(status: str = "open", kind: str = "", page: int = Query(1, ge=1)
     rows = q.order_by(Draft.needs_human.desc(), Draft.created_at.desc()).offset((page - 1) * size).limit(size).all()
     counts = rows_to_dict(db.query(Draft.status, func.count(Draft.id)).filter(Draft.tenant_id == ctx.tenant.id).group_by(Draft.status).all())
     insts = {i.id: i for i in db.query(Instance).filter(Instance.tenant_id == ctx.tenant.id).all()}
-    return {"rows": [draft_out(d, l, insts) for d, l in rows], "total": total, "page": page, "pages": max(1, -(-total // size)), "counts": {s: counts.get(s, 0) for s in STATUSES}}
+    atts = assetlib.draft_attachments(db, [d.id for d, _ in rows])  # one query for the whole page
+    return {"rows": [draft_out(d, l, insts, atts.get(d.id)) for d, l in rows], "total": total, "page": page, "pages": max(1, -(-total // size)), "counts": {s: counts.get(s, 0) for s in STATUSES}}
 
 
 @router.get("/queue")
@@ -67,7 +69,7 @@ def edit(draft_id: str, body: BodyIn, ctx: TCtx = Depends(need_role("operator"))
     if d.status == "failed":
         d.status = "pending"
     db.commit()
-    return draft_out(d, db.get(Lead, d.lead_id))
+    return draft_out(d, db.get(Lead, d.lead_id), atts=assetlib.draft_attachments(db, [d.id]).get(d.id))
 
 
 class RegenIn(BaseModel):
@@ -93,7 +95,33 @@ async def regenerate(draft_id: str, body: RegenIn, ctx: TCtx = Depends(need_role
     if d.status == "failed":
         d.status = "pending"
     db.commit()
-    return draft_out(d, lead)
+    return draft_out(d, lead, atts=assetlib.draft_attachments(db, [d.id]).get(d.id))
+
+
+class AttachIn(BaseModel):
+    assetIds: list[str] = Field(default_factory=list, max_length=media.FIRST_MESSAGE_MAX_ASSETS)
+
+
+@router.put("/{draft_id}/attachments")
+def set_attachments(draft_id: str, body: AttachIn, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict:
+    """Replace what a waiting draft carries (e.g. remove the image from one message). Links are part of the text: edit the text to remove one."""
+    d = _own(db, ctx, draft_id)
+    if d.status not in ("pending", "failed"):
+        raise HTTPException(409, "Only pending or failed drafts can be changed")
+    ids = list(dict.fromkeys(body.assetIds))
+    found = assetlib.assets_by_ids(db, ctx.tenant.id, ids)
+    if len(found) != len(ids):
+        raise HTTPException(422, "Some selected media items do not exist in this workspace")
+    if d.kind == "first" and len(found) > 1:
+        raise HTTPException(422, "A first message carries at most one item (it is always ONE WhatsApp message)")
+    if len(found) > media.REPLY_MAX_ASSETS:
+        raise HTTPException(422, f"At most {media.REPLY_MAX_ASSETS} items per message")
+    db.query(DraftAsset).filter(DraftAsset.draft_id == d.id).delete(synchronize_session=False)
+    assetlib.attach(db, d, found)
+    if d.status == "failed":
+        d.status, d.note = "pending", ""
+    db.commit()
+    return draft_out(d, db.get(Lead, d.lead_id), atts=assetlib.draft_attachments(db, [d.id]).get(d.id))
 
 
 class IdsIn(BaseModel):

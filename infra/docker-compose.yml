@@ -53,14 +53,15 @@ services:
       OPENWA_KEY_FILE: /openwa-data/.api-key
       INTERNAL_WEBHOOK_URL: http://api:8000/internal/wa-webhook
       SEARXNG_URL: http://searxng:8080
-    volumes: [openwa-data:/openwa-data:ro]
+      ASSETS_DIR: /data/assets
+    volumes: [openwa-data:/openwa-data:ro, 'assets-data:/data/assets']   # media library files when STORAGE_BACKEND=local (see docs/MEDIA.md)
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
     healthcheck:
       test: ['CMD', 'python', '-m', 'app.healthcheck', 'api']
       interval: 30s
-      timeout: 6s
+      timeout: 15s
       retries: 3
       start_period: 40s
     restart: unless-stopped
@@ -78,13 +79,14 @@ services:
       OPENWA_URL: http://wa-gateway:2785
       OPENWA_KEY_FILE: /openwa-data/.api-key
       SEARXNG_URL: http://searxng:8080
-    volumes: [openwa-data:/openwa-data:ro]
+      ASSETS_DIR: /data/assets
+    volumes: [openwa-data:/openwa-data:ro, 'assets-data:/data/assets']   # the sender reads the files it attaches
     depends_on:
       api: { condition: service_started }
     healthcheck:
       test: ['CMD', 'python', '-m', 'app.healthcheck', 'worker']   # fails when the worker's Redis heartbeat is older than 60 s
       interval: 30s
-      timeout: 6s
+      timeout: 15s
       retries: 3
       start_period: 60s
     restart: unless-stopped
@@ -289,4 +291,5 @@ services:
 volumes:
   pg-data:
   openwa-data:
+  assets-data:
   kuma-data:

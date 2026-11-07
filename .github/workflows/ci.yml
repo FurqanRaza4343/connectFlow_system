@@ -102,7 +102,7 @@ jobs:
           mkdir -p ../ci-logs
           docker compose --profile dev ps > ../ci-logs/ps.txt || true
           for s in api worker wa-gateway postgres redis caddy; do docker compose logs --no-color --tail 500 $s > ../ci-logs/$s.log 2>&1 || true; done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: ci-logs

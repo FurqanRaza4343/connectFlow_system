@@ -120,7 +120,7 @@ def downgrade() -> None:
     op.drop_column('outreach_profiles', 'interval_hours')
     op.drop_column('outreach_profiles', 'batch_size')
     op.drop_column('outreach_profiles', 'auto_run')
-    op.drop_constraint(None, 'leads', type_='foreignkey')
+    op.drop_constraint('leads_instance_id_fkey', 'leads', type_='foreignkey')  # PostgreSQL's default name for the unnamed FK created in upgrade()
     op.drop_column('leads', 'enriched_at')
     op.drop_column('leads', 'enrichment')
     op.drop_column('leads', 'instance_id')

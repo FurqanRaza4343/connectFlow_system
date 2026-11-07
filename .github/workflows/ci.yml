@@ -49,7 +49,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: npm, cache-dependency-path: '{frontend,website}/package-lock.json' }
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            website/package-lock.json
       - name: React app (tsc --noEmit && vite build)
         working-directory: frontend
         run: npm ci --no-audit --no-fund && npm run build

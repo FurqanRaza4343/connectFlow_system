@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     sec_volume_critical_floor: int = 200   # requests/hour that suspend the key (or 10x the daily average, if higher)
     sec_volume_mult: int = 10
     ai_global_daily_cap: int = 0           # AI calls per UTC day for the whole platform (circuit breaker); 0 = off
+    # AI cost accounting. Prices are USD per MILLION tokens and come from your provider's price page: 0 = unknown (the cost column then stays 0).
+    ai_price_in_per_m: float = 0.0
+    ai_price_out_per_m: float = 0.0
+    ai_price_cached_per_m: float = 0.0
+    ai_model_fast: str = ""                # optional cheaper model for extraction/classification-like calls (pick_website, extract_facts, follow-ups); empty = AI_MODEL
+    ai_knowledge_max_chars: int = 8000     # the knowledge base is sent with EVERY call: cap what is injected (the profile still stores up to 20000)
 
     # Stripe billing. Leave STRIPE_SECRET_KEY empty to keep the manual upgrade-request flow.
     stripe_secret_key: str = ""
@@ -102,6 +108,8 @@ class Settings(BaseSettings):
                 raise ValueError("WEBHOOK_ALLOW_PRIVATE must be false in production")
             if self.ai_fake or self.outreach_fake_send:
                 raise ValueError("AI_FAKE / OUTREACH_FAKE_SEND are test switches and must be off in production")
+            if self.ai_global_daily_cap <= 0:
+                raise ValueError("AI_GLOBAL_DAILY_CAP must be > 0 in production (the platform-wide circuit breaker for runaway AI spend; e.g. 5000)")
             if not self.encryption_key:
                 raise ValueError("ENCRYPTION_KEY is required in production (generate with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\")")
         for name in ("encryption_key", "encryption_key_previous"):

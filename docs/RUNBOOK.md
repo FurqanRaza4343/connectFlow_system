@@ -152,3 +152,69 @@ Reference: `docs/MEDIA.md`.
 - **Large tables**: before upgrading a database with millions of messages/usage events, create the composite indexes of migration 0011 by hand with `CREATE INDEX CONCURRENTLY` (see `docs/MEDIA.md`).
 - **Redis counters**: if a daily counter ever looks wrong, delete the key (`q:msg:<tenant>:<YYYYMMDD>`, `og:first|out|media:<tenant>:<date>`); the next read rebuilds it from the database.
 
+## 9. Scaling and operations (P0)
+
+### 9.1 Running more than one replica
+The API is stateless (JWT cookie), so `docker compose up -d --scale api=2` works behind Caddy's `reverse_proxy api:8000` (Docker DNS round-robins). The worker
+can also run several replicas; these rules make that safe:
+
+| Work | How it is kept safe with N replicas |
+|---|---|
+| Webhook deliveries, approved drafts | `FOR UPDATE SKIP LOCKED` claims (a row is taken by exactly one replica) |
+| Paced sender | per-workspace Redis key `og:gap:<tenant>` is both the lock and the pause between messages |
+| Scheduler tick, daily digest, billing grace, assets sweep, draft recovery | Redis **leader lock** (`app/locks.py`, keys `lock:<name>`): only one replica runs the tick; the lock is renewed while a long batch runs and expires by itself 2-5 min after a crash |
+| Reaper, retention | their own Redis locks (unchanged) |
+| Start-up (migrations, encryption back-fill, plan/admin seeding) | Postgres **advisory lock 7002**: a second API replica waits until the first has finished |
+| Drafts stuck in `sending` | recovered only when `sending_at` is older than 10 minutes (`outreach.STALE_SENDING_S`); a replica starting up never fails another replica's in-flight sends |
+
+Try it: `docker compose up -d --no-recreate --scale worker=2 worker` ... `docker compose up -d --no-recreate --scale worker=1 worker`. The e2e suite
+`python backend/tests/run_e2e.py p0` does exactly this (with AI_FAKE and OUTREACH_FAKE_SEND on) and checks one message per lead.
+Not yet multi-host: the local asset volume (`STORAGE_BACKEND=local`) and the gateway key file are single-host. Use Cloudinary/S3 and a gateway node registry first.
+
+### 9.2 Postgres and Redis sizing
+`infra/docker-compose.prod.yml` tunes Postgres for ONE 8 GB server that also runs the api, worker, redis and the gateway:
+
+| Setting | Value | Why |
+|---|---|---|
+| `shared_buffers` | 2GB | about 25% of RAM; the default 128MB makes every query read from the OS cache |
+| `effective_cache_size` | 5GB | a hint for the planner (buffers + OS cache), not an allocation |
+| `work_mem` | 16MB | per sort/hash node; keep `max_connections` x nodes x work_mem inside the container limit |
+| `maintenance_work_mem` | 256MB | faster VACUUM / CREATE INDEX |
+| `max_connections` | 200 | api 20 + worker 20 per replica + gateway; when replicas x 20 passes about 120, put PgBouncer (transaction mode) in front |
+| `wal_compression`, `checkpoint_timeout=15min`, `max_wal_size=4GB` | on / 15 min / 4 GB | fewer and smoother checkpoints |
+| `autovacuum_vacuum_scale_factor` | 0.05 | vacuum busy tables at 5% dead rows (default 20%) |
+| `log_min_duration_statement` | 500 | slow queries (over 0.5 s) appear in `docker compose logs postgres` |
+| container `mem_limit` | 4g, `shm_size` 512m | a runaway query cannot take the box down |
+
+On a bigger machine scale `shared_buffers` to about 25% of RAM. Local development keeps the small image defaults. **Do not recreate the Postgres container casually**:
+the data lives in the `pg-data` volume, but a changed `command` needs a restart (short downtime).
+
+**Redis is persistent** (base and prod): append-only file, fsync every second, volume `redis-data`, `maxmemory-policy noeviction` (a full Redis refuses writes loudly
+instead of dropping locks or counters), memory limits 256 MB dev / 512 MB prod. A restart no longer loses rate-limit windows, enrichment queues or idempotency keys.
+Check: `docker compose exec redis redis-cli config get appendonly` -> `yes`.
+
+### 9.3 Reading the AI cost numbers
+* **Admin > Customers > a workspace > Overview**: AI calls today (plan quota), AI tokens today, provider retries today, and the estimated cost this month.
+* **Admin > System**: platform calls / tokens / retries / estimated cost today and the global cap. `GET /api/admin/capacity` -> `ai`.
+* Costs are **estimates**: tokens reported by the provider x the prices you configure (`AI_PRICE_IN_PER_M`, `AI_PRICE_OUT_PER_M`, `AI_PRICE_CACHED_PER_M`, USD per million tokens, copied
+  from the provider's price page; `0` = unknown and the cost shows `n/a`). Compare with the provider's own invoice monthly.
+* A **retry** (provider 429/5xx or a network error) is counted separately and does NOT use the workspace's plan quota; many retries mean the provider is struggling.
+* The **global circuit breaker** (`AI_GLOBAL_DAILY_CAP`, required > 0 in production) switches AI off platform-wide for the rest of the UTC day when the call count passes the cap
+  and raises a warning on the Security page. Pick a number about 20% above a normal day.
+* Cheaper model for easy calls: `AI_MODEL_FAST` (website pick, page facts, follow-ups). `AI_KNOWLEDGE_MAX_CHARS` (default 8000) caps the knowledge base sent with every call.
+* Data: table `ai_usage_daily` (one row per workspace per day, numbers only, never prompts or messages), kept 13 months.
+
+### 9.4 Media byte cache
+Recently used files are kept in memory per process (64 MB / 16 files / 1 hour, `app/bytecache.py`), so a campaign that sends one image 300 times reads storage once.
+`capacity.storage.cache` shows `hits1h`, `misses1h`, `storageReads1h`. A deleted file is dropped from the cache of the process that deletes it and from the others within the hour.
+
+### 9.5 Growing tables: plan
+* **Retention** (daily, worker): webhook deliveries, notifications, audit log, usage events, drafts, batches, `ai_usage_daily` (13 months) and `security_events` (13 months).
+  `messages` and `leads` are customer data and are never deleted automatically.
+* **Partitioning `messages`** (when it passes about 50 million rows, roughly 100 busy workspaces for a year): range-partition by month on `created_at` (keep
+  the (tenant_id, lead_id) and (tenant_id, direction, kind, created_at) indexes per partition), move old partitions to cheaper storage or detach them for export. Do it in a
+  maintenance window with a copy-and-swap migration; do not attempt it online with `ALTER TABLE`.
+* **Large-table indexes** (run BEFORE the migration that would create them, outside a transaction): `CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_messages_tenant_dir_kind_at
+  ON messages (tenant_id, direction, kind, created_at);` and the same for `usage_events (tenant_id, kind, at)`. The migration's `IF NOT EXISTS` then does nothing.
+  Watch progress with `SELECT * FROM pg_stat_progress_create_index;` and drop a failed (INVALID) index with `DROP INDEX CONCURRENTLY` before retrying.
+

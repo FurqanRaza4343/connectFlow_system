@@ -206,7 +206,7 @@ def test_crawler_allows_public_http():
 def test_retention_rules_cutoffs_and_scope():
     rules = retention.plan_rules(NOW)
     tables = {r["table"] for r in rules}
-    assert tables == {"webhook_deliveries", "notifications", "audit_log", "usage_events", "drafts", "batches"}
+    assert tables == {"webhook_deliveries", "notifications", "audit_log", "usage_events", "drafts", "batches", "ai_usage_daily", "security_events"}
     assert not tables & {"messages", "leads", "instances", "tenants", "users"}      # customer data is never pruned
     for r in rules:
         assert r["cutoff"] < NOW and ":cutoff" in r["where"]

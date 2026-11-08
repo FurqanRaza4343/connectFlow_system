@@ -99,7 +99,7 @@ def test_key_validation():
 
 
 def _prod(**over):
-    base = dict(_env_file=None, jwt_secret="j" * 40, openwa_webhook_secret="w" * 40, cookie_secure=True)
+    base = dict(_env_file=None, jwt_secret="j" * 40, openwa_webhook_secret="w" * 40, cookie_secure=True, ai_global_daily_cap=5000)
     base.update(over)
     return Settings(**base)
 

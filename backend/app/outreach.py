@@ -325,8 +325,8 @@ async def _send_part(db: Session, inst: Instance, chat_id: str, part: Part) -> d
         return {}
     assert part.asset is not None
     vid, backend, key, mime = assetlib.choose_variant(db, part.asset)
+    data = await assetlib.read_file(backend, key)  # cached in memory: one storage read per file per hour of sends (also in fake-send mode, so tests exercise it)
     if not settings.outreach_fake_send:
-        data = await assetlib.read_file(backend, key)
         async with _sem():
             try:
                 await wa.send_media(inst.openwa_id, chat_id, part.kind, data=data, mimetype=mime, filename=f"{(part.asset.label or 'document')[:60]}.pdf", caption=part.text)
@@ -474,9 +474,16 @@ def claim_next(db: Session, tenant_id: str) -> Draft | None:
     return d
 
 
-def recover_interrupted(db: Session) -> int:
-    """A draft stuck in 'sending' means a worker died mid-send. We cannot know whether WhatsApp got it: mark failed for a human to check."""
-    n = db.query(Draft).filter(Draft.status == "sending").update({Draft.status: "failed", Draft.note: "Interrupted by a restart - check the chat in WhatsApp before sending again", Draft.sending_at: None}, synchronize_session=False)
+STALE_SENDING_S = 600  # a send never takes this long (gateway call timeout 60 s + one retry): older means its worker died
+
+
+def recover_interrupted(db: Session, stale_after_s: int = STALE_SENDING_S) -> int:
+    """A draft stuck in 'sending' for longer than `stale_after_s` means a worker died mid-send. We cannot know whether WhatsApp got it:
+    mark it failed for a human to check. Younger 'sending' drafts are NEVER touched: with several worker replicas, a replica that starts
+    (or runs this loop) must not fail the sends another replica is making right now."""
+    cutoff = utcnow() - timedelta(seconds=stale_after_s)
+    n = db.query(Draft).filter(Draft.status == "sending", or_(Draft.sending_at.is_(None), Draft.sending_at < cutoff)).update(
+        {Draft.status: "failed", Draft.note: "Interrupted by a restart - check the chat in WhatsApp before sending again", Draft.sending_at: None}, synchronize_session=False)
     db.commit()
     return n
 

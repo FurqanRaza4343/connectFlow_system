@@ -92,3 +92,17 @@ Recipients = owner + admins + extras. Events: needs-human reply (or AI unavailab
 - `GET /api/admin/capacity` gains `storage:{backend,assetsTotal,bytesTotal,mediaSends1h,senderQueueDepth,uploadFailures1h}`; `GET /api/billing` usage gains `assets{bytes,limitBytes,count,limitCount,plan}` and the plans gain `assetBytesLimit`, `assetCountLimit`.
 - Scaling: per-send COUNT queries are Redis daily counters rebuilt from the database (`q:msg:*`, `og:first|out|media:*`); composite indexes on messages/usage_events/leads; follow-up selection is one bounded query; each workspace sends in its own task.
 
+# P0 additions — multi-replica safety and AI accounting (migration 0012)
+- `outreach.recover_interrupted(db, stale_after_s=600)` marks a draft `failed` ("Interrupted by a restart ...") only when it has been `sending` for more than 10 minutes
+  (or has no `sending_at`). It runs every 2 min under the leader lock `recover` instead of once at worker start, so a starting replica never fails another replica's in-flight send.
+- Loops that must not run twice use `locks.leader(name, ttl)` (Redis `SET NX PX` + token, auto-renewed, compare-and-delete release; Redis down = not granted): `scheduler` (120 s),
+  `digest` (120 s), `recover` (120 s), `billing` (300 s), `assets-sweep` (300 s). Start-up work (migrations, backfill, seeding) holds Postgres advisory lock 7002.
+- AI accounting: every gated call upserts `ai_usage_daily(tenant_id, day, calls, retries, tokens_in, tokens_out, tokens_cached, est_cost_micro_usd)`; provider `usage` is read from the
+  response (`prompt_tokens`, `completion_tokens`, `prompt_cache_hit_tokens` or `prompt_tokens_details.cached_tokens`); retries (429/5xx/network) are counted but never use the plan quota.
+  Redis: `ai:day:<YYYYMMDD>` (calls, always counted), `ai:breaker:<day>`, `ai:retries:<day>`, `ai:tokens:<day>` (hash in/out/cached), `ai:cost:<day>` (micro-USD). One module, `app/ai_counters.py`, names them for writers and readers.
+- Settings: `AI_GLOBAL_DAILY_CAP` (must be > 0 when `COOKIE_SECURE=true`), `AI_PRICE_IN_PER_M`, `AI_PRICE_OUT_PER_M`, `AI_PRICE_CACHED_PER_M` (0 = unknown), `AI_MODEL_FAST`, `AI_KNOWLEDGE_MAX_CHARS` (8000).
+- `GET /api/admin/capacity` `ai` = `{callsToday, retriesToday, tokensToday, costTodayUsd, breakerOpen, globalCap}` (now real numbers) and `storage.cache = {hits1h, misses1h, storageReads1h}`.
+- `GET /api/admin/customers` rows and `GET /api/admin/customers/{id}` `usage` gain `aiTokensToday`, `aiCostTodayUsd`, `aiCostMonthUsd` (detail also `aiRetriesToday`); `GET /api/billing` `usage.aiTokensToday` (customers never see a cost).
+- Media bytes are cached in memory per process (`app/bytecache.py`): one storage read per file per hour of sends; `Storage.delete` invalidates.
+- Retention: `ai_usage_daily` and `security_events` are pruned after 13 months (`RETENTION_AI_USAGE_MONTHS`, `RETENTION_SECURITY_MONTHS`).
+

@@ -437,3 +437,18 @@ class SecurityEvent(Base):
     kind: Mapped[str] = mapped_column(String(32), index=True)
     detail: Mapped[str] = mapped_column(Text, default="")
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+
+class AiUsageDaily(Base):
+    """Per workspace per UTC day: AI calls, provider retries, tokens and an ESTIMATED cost (price from AI_PRICE_* env; 0 = unknown).
+    Never holds prompts or message text. Upserted atomically by app/ai.py."""
+
+    __tablename__ = "ai_usage_daily"
+    __table_args__ = (Index("ix_ai_usage_daily_day", "day"),)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    calls: Mapped[int] = mapped_column(Integer, default=0)
+    retries: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_in: Mapped[int] = mapped_column(BigInteger, default=0)
+    tokens_out: Mapped[int] = mapped_column(BigInteger, default=0)
+    tokens_cached: Mapped[int] = mapped_column(BigInteger, default=0)
+    est_cost_micro_usd: Mapped[int] = mapped_column(BigInteger, default=0)

@@ -35,6 +35,8 @@ def plan_rules(now: datetime) -> list[dict]:
         {"table": "notifications", "where": '"read" = true AND created_at < :cutoff', "cutoff": d(ops.retention_notification_days)},
         {"table": "audit_log", "where": "at < :cutoff", "cutoff": months_ago(now, ops.retention_audit_months)},
         {"table": "usage_events", "where": "at < :cutoff", "cutoff": months_ago(now, ops.retention_usage_months), "rollup": True, "ts": "at"},
+        {"table": "ai_usage_daily", "where": "day < CAST(:cutoff AS date)", "cutoff": months_ago(now, ops.retention_ai_usage_months), "ctid": True},  # composite key, no id column
+        {"table": "security_events", "where": "at < :cutoff", "cutoff": months_ago(now, ops.retention_security_months)},
         {"table": "drafts", "where": "status IN ('sent','discarded') AND created_at < :cutoff", "cutoff": d(ops.retention_draft_days)},
         {"table": "batches", "where": "started_at < :cutoff", "cutoff": months_ago(now, ops.retention_batch_months)},
         # shrink big JSON bodies early; the delivery row itself (status, attempts, response) stays until the 30-day rule
@@ -74,6 +76,8 @@ def run_once(now: datetime | None = None) -> dict:
                     for (tenant_id, day), n in rollup_counts([(x[1], x[2]) for x in rows]).items():
                         r.hincrby(f"usage:rollup:{tenant_id}", day, n)
                     res = db.execute(text(f"DELETE FROM {t} WHERE id = ANY(:ids)"), {"ids": [x[0] for x in rows]})
+                elif rule.get("ctid"):  # tables with a composite primary key (no id column)
+                    res = db.execute(text(f"DELETE FROM {t} WHERE ctid IN (SELECT ctid FROM {t} WHERE {w} LIMIT :n)"), params)
                 else:
                     res = db.execute(text(f"DELETE FROM {t} WHERE id IN (SELECT id FROM {t} WHERE {w} LIMIT :n)"), params)
                 db.commit()

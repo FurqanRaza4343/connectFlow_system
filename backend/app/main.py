@@ -11,6 +11,7 @@ from sqlalchemy import inspect, text
 from . import abuse
 from .config import settings
 from .db import SessionLocal, engine
+from .locks import ADV_STARTUP, advisory_lock, advisory_unlock
 from .models import Membership, Plan, Tenant, User
 from .routers import account, assets, twofactor, admin, admin_ext, admin_ops, admin_security, auth, billing, branding, google, instances, internal, drafts, keys, leads, outreach, team, v1, webhooks
 from .security import hash_password
@@ -70,6 +71,16 @@ def startup() -> None:
             break
         except Exception:
             time.sleep(2)
+    # Two API replicas starting together must not run the migrations / seeding at the same time: the second waits here for the first.
+    with engine.connect() as lock_conn:
+        advisory_lock(lock_conn, ADV_STARTUP)
+        try:
+            _startup_work()
+        finally:
+            advisory_unlock(lock_conn, ADV_STARTUP)
+
+
+def _startup_work() -> None:
     run_migrations()
     with SessionLocal() as db:
         backfill(db)  # encrypt any webhook secret that is still plaintext (written before at-rest encryption)

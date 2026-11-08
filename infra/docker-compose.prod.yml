@@ -25,9 +25,46 @@ services:
     logging: *rotate
   worker:
     logging: *rotate
+
+  # Tuned for ONE 8 GB VPS shared with the api, worker, redis and the gateway (see docs/RUNBOOK.md 'Scaling and operations'):
+  #   shared_buffers 2 GB (~25% of RAM)        effective_cache_size 5 GB (planner hint: buffers + OS cache, not an allocation)
+  #   work_mem 16 MB (per sort/hash node; with max_connections 200 the worst case is bounded by mem_limit below)
+  #   checkpoint_timeout 15 min + max_wal_size 4 GB: fewer, smoother checkpoints;  wal_compression: less WAL I/O
+  #   autovacuum_vacuum_scale_factor 0.05: vacuum busy tables at 5% dead rows instead of the default 20%
+  #   log_min_duration_statement 500: slow queries show up in the logs
   postgres:
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=5GB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=256MB
+      - -c
+      - max_connections=200
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - autovacuum_vacuum_scale_factor=0.05
+      - -c
+      - autovacuum_analyze_scale_factor=0.02
+    shm_size: 512m
+    mem_limit: 4g
     logging: *rotate
+
+  # Redis on the server: more room than the 192 MB development default.
   redis:
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory', '384mb', '--maxmemory-policy', 'noeviction']
+    mem_limit: 512m
     logging: *rotate
   wa-gateway:
     logging: *rotate

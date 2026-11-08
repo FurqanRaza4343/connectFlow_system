@@ -49,7 +49,7 @@ type Detail = {
   keys: { id: string; name: string; prefix: string; lastUsedAt: string | null; expiresAt: string | null; revoked: boolean; status: string; requestsToday: number; requests7d: number; errors7d: number; distinctIps7d: number; lastIp: string; lastUserAgent: string; lastSeenAt: string | null; suspendedReason: string; suspendedBy: string; allowedIps: string }[];
   webhooks: { id: string; url: string; active: boolean; events: string[]; deliveries: { success: number; failed: number; pending: number } }[];
   leads: { total: number; byStatus: Record<string, number> };
-  usage: { today: number; limit: number; days: { day: string; count: number }[]; aiToday: number; aiLimit: number };
+  usage: { today: number; limit: number; days: { day: string; count: number }[]; aiToday: number; aiLimit: number; aiTokensToday?: number; aiCostTodayUsd?: number; aiCostMonthUsd?: number; aiRetriesToday?: number };
   requests: { id: string; planId: string; status: string; createdAt: string; note: string }[];
   activity: { at: string; action: string; detail: string; userEmail: string | null }[];
 };
@@ -83,7 +83,7 @@ export function CustomerDetail({ id, back }: { id: string; back: () => void }) {
 
       {tab === 'Overview' && (
         <div className="ad-grid">
-          <div className="ad-grid ad-kpis"><Kpi v={num(d.usage.today)} l="Messages today" s={`limit ${num(d.usage.limit)}`} /><Kpi v={d.instances.length} l="Numbers" s={`${d.instances.filter((i) => i.status === 'ready').length} connected`} /><Kpi v={d.members.length} l="People" /><Kpi v={num(d.leads.total)} l="Leads" /><Kpi v={d.keys.filter((k) => !k.revoked).length} l="Active API keys" /><Kpi v={`${num(d.usage.aiToday)} / ${num(d.usage.aiLimit)}`} l="AI calls today" s="plan daily limit" /><Kpi v={d.webhooks.length} l="Webhooks" /></div>
+          <div className="ad-grid ad-kpis"><Kpi v={num(d.usage.today)} l="Messages today" s={`limit ${num(d.usage.limit)}`} /><Kpi v={d.instances.length} l="Numbers" s={`${d.instances.filter((i) => i.status === 'ready').length} connected`} /><Kpi v={d.members.length} l="People" /><Kpi v={num(d.leads.total)} l="Leads" /><Kpi v={d.keys.filter((k) => !k.revoked).length} l="Active API keys" /><Kpi v={`${num(d.usage.aiToday)} / ${num(d.usage.aiLimit)}`} l="AI calls today" s="plan daily limit" /><Kpi v={num(d.usage.aiTokensToday)} l="AI tokens today" s={`${num(d.usage.aiRetriesToday)} provider retries`} /><Kpi v={(d.usage.aiCostMonthUsd ?? 0) > 0 ? `$${(d.usage.aiCostMonthUsd ?? 0).toFixed(2)}` : 'n/a'} l="AI cost this month (est.)" s={(d.usage.aiCostTodayUsd ?? 0) > 0 ? `today $${(d.usage.aiCostTodayUsd ?? 0).toFixed(4)}` : 'needs AI_PRICE_* settings'} /><Kpi v={d.webhooks.length} l="Webhooks" /></div>
           <div className="ad-grid ad-2">
             <div className="ad-card"><h3>Messages, last days</h3><BarChart data={d.usage.days} label="Messages per day" /></div>
             <div className="ad-card"><h3>Facts</h3><dl className="ad-kv"><dt>Tenant id</dt><dd><Copy text={t.id} /></dd><dt>Brand colour</dt><dd>{t.brandColor ? <><span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 3, background: t.brandColor, marginRight: 6 }} />{t.brandColor}</> : 'default'}</dd><dt>Created</dt><dd>{abs(t.createdAt)}</dd><dt>Plan requests</dt><dd>{d.requests.length ? d.requests.map((r) => <div key={r.id}><Badge v={r.status} /> → {r.planId} <span className="ad-faint"><When iso={r.createdAt} />{r.note && ` · ${r.note}`}</span></div>) : 'none'}</dd></dl></div>

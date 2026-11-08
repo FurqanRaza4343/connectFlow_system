@@ -12,9 +12,9 @@ from .. import wa_client as wa
 from ..config import settings
 from ..db import get_db
 from ..deps import Ctx, platform_admin, rds
-from ..models import (ApiKey, ApiKeyUsage, AuditLog, Instance, Lead, Membership, Message, Plan, Tenant, UpgradeRequest, UsageEvent, User, WebhookDelivery, WebhookEndpoint)
+from ..models import (AiUsageDaily, ApiKey, ApiKeyUsage, AuditLog, Instance, Lead, Membership, Message, Plan, Tenant, UpgradeRequest, UsageEvent, User, WebhookDelivery, WebhookEndpoint)
 from .. import assetlib
-from ..quota import ai_calls_today, day_start, messages_today
+from ..quota import ai_calls_today, ai_cost_usd, ai_tokens_by_tenant, day_start, messages_today
 from ..sqlutil import rows_to_dict
 from collections.abc import Iterable
 
@@ -83,10 +83,12 @@ def customers(q: str = "", status: str = "", plan: str = "", page: int = Query(1
     leads = rows_to_dict(db.query(Lead.tenant_id, func.count(Lead.id)).filter(Lead.tenant_id.in_(ids)).group_by(Lead.tenant_id).all())
     today = rows_to_dict(db.query(UsageEvent.tenant_id, func.count(UsageEvent.id)).filter(UsageEvent.tenant_id.in_(ids), UsageEvent.at >= day_start(), UsageEvent.kind == "message").group_by(UsageEvent.tenant_id).all())
     allm = rows_to_dict(db.query(UsageEvent.tenant_id, func.count(UsageEvent.id)).filter(UsageEvent.tenant_id.in_(ids), UsageEvent.kind == "message").group_by(UsageEvent.tenant_id).all())
+    ai_tok, ai_cost_d, ai_cost_m = ai_tokens_by_tenant(db, ids), ai_cost_usd(db, ids), ai_cost_usd(db, ids, month=True)
     return {
         "rows": [{"id": t.id, "name": t.name, "ownerEmail": owners[t.id].email if t.id in owners else "", "ownerName": owners[t.id].name if t.id in owners else "", "plan": t.plan_id, "status": t.status,
                   "createdAt": _iso(t.created_at), "lastActiveAt": _iso(seen.get(t.id)), "numbers": nums.get(t.id, 0), "members": mems.get(t.id, 0), "leads": leads.get(t.id, 0),
-                  "messagesToday": today.get(t.id, 0), "messagesTotal": allm.get(t.id, 0)} for t in rows],
+                  "messagesToday": today.get(t.id, 0), "messagesTotal": allm.get(t.id, 0),
+                  "aiTokensToday": ai_tok.get(t.id, 0), "aiCostTodayUsd": ai_cost_d.get(t.id, 0.0), "aiCostMonthUsd": ai_cost_m.get(t.id, 0.0)} for t in rows],
         "total": total, "page": page, "pages": max(1, -(-total // size)),
     }
 
@@ -132,6 +134,9 @@ def customer(tenant_id: str, db: Session = Depends(get_db), _: Ctx = Depends(pla
 
     def _icount(iid: str | None) -> dict[str, Any]:  # counters only - admins never see message content
         return {"sentToday": sent_t.get(iid, 0), "sent7d": sent_m.get(iid, 0), "replies7d": in_m.get(iid, 0)}
+    ai_tok, ai_cost_d, ai_cost_m = ai_tokens_by_tenant(db, [t.id]), ai_cost_usd(db, [t.id]), ai_cost_usd(db, [t.id], month=True)
+    ai_row = db.query(AiUsageDaily.retries).filter(AiUsageDaily.tenant_id == t.id, AiUsageDaily.day == now.date()).first()
+    ai_retries = int(ai_row[0]) if ai_row else 0
     return {
         "tenant": {"id": t.id, "name": t.name, "plan": t.plan_id, "status": t.status, "createdAt": _iso(t.created_at), "website": t.website_url, "brandColor": t.brand_color,
                    "subscription": {"status": t.subscription_status or "", "customerId": t.stripe_customer_id or "", "subscriptionId": t.stripe_subscription_id or "", "renewsAt": _iso(t.current_period_end),
@@ -141,7 +146,8 @@ def customer(tenant_id: str, db: Session = Depends(get_db), _: Ctx = Depends(pla
         "keys": [{"id": k.id, "name": k.name, "prefix": k.prefix, "lastUsedAt": _iso(k.last_used_at), "expiresAt": _iso(k.expires_at), "revoked": bool(k.revoked_at or (k.expires_at and k.expires_at < now)), **_kstat(k)} for k in keys],
         "webhooks": [{"id": e.id, "url": e.url, "active": e.active, "events": e.events.split(","), "deliveries": {"success": dl.get(e.id, {}).get("success", 0), "failed": dl.get(e.id, {}).get("failed", 0), "pending": dl.get(e.id, {}).get("pending", 0) + dl.get(e.id, {}).get("retrying", 0)}} for e in eps],
         "leads": {"total": sum(by_status.values()), "byStatus": by_status},
-        "usage": {"today": messages_today(db, t.id), "limit": t.plan.max_msgs_day, "days": _series(usage, 14), "aiToday": ai_calls_today(db, t.id), "aiLimit": t.plan.ai_calls_day},
+        "usage": {"today": messages_today(db, t.id), "limit": t.plan.max_msgs_day, "days": _series(usage, 14), "aiToday": ai_calls_today(db, t.id), "aiLimit": t.plan.ai_calls_day,
+                  "aiTokensToday": ai_tok.get(t.id, 0), "aiCostTodayUsd": ai_cost_d.get(t.id, 0.0), "aiCostMonthUsd": ai_cost_m.get(t.id, 0.0), "aiRetriesToday": ai_retries},
         "requests": [{"id": r.id, "planId": r.plan_id, "status": r.status, "createdAt": _iso(r.created_at), "note": r.note} for r in reqs],
         "activity": [{"at": _iso(a.at), "action": a.action, "detail": a.detail, "userEmail": email} for a, email in acts],
     }

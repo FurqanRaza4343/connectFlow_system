@@ -157,25 +157,36 @@ async def billing_loop() -> None:
     """Hourly: past-due subscriptions whose 7-day grace has ended fall back to the Trial plan."""
     from . import stripe_billing
 
+    from .locks import leader
+
     while True:
         try:
-            with SessionLocal() as db:
-                n = stripe_billing.expire_grace(db)
-            if n:
-                log.info("billing: %d workspace(s) moved to Trial after the grace period", n)
+            async with leader("billing", 300) as is_leader:  # one replica at a time
+                if is_leader:
+                    with SessionLocal() as db:
+                        n = stripe_billing.expire_grace(db)
+                    if n:
+                        log.info("billing: %d workspace(s) moved to Trial after the grace period", n)
         except Exception:  # noqa: BLE001
             log.exception("billing loop failed")
         await asyncio.sleep(3600)
 
 
+RESTART_DELAY_S = 5
+
+
 async def _supervise(name: str, fn: Callable[[], Awaitable[None]]) -> None:
-    """Restart a background loop if it ever crashes out (each loop already guards its own iterations)."""
+    """Restart a background loop if it ever CRASHES out (each loop already guards its own iterations).
+    A loop that simply RETURNS has finished on purpose (e.g. REAPER_ENABLED=false or RETENTION_ENABLED=false): it is not started again.
+    (Restarting it immediately made a tight `while True` that never yields to the event loop and froze the whole worker.)"""
     while True:
         try:
             await fn()
+            log.info("%s loop finished; not restarting it", name)
+            return
         except Exception:  # noqa: BLE001
-            log.exception("%s loop crashed, restarting in 5 s", name)
-            await asyncio.sleep(5)
+            log.exception("%s loop crashed, restarting in %s s", name, RESTART_DELAY_S)
+            await asyncio.sleep(RESTART_DELAY_S)
 
 
 async def main() -> None:

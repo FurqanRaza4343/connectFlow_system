@@ -75,3 +75,23 @@ Switching plan while subscribed updates the existing subscription (proration) in
 - Events are applied in arrival order; an out-of-order older `subscription.updated` could briefly show stale data until the next event. Stripe retries and the next renewal corrects it.
 - USD only. PKR/bank-transfer customers use the manual request flow while `STRIPE_SECRET_KEY` is empty, or ask support to set the plan by hand.
 - Seat counts (Growth has 10) are a plan limit, not a per-seat price.
+
+## 8. AI cost control (what a workspace costs you)
+The plan caps (`ai_calls_day`: Trial 20, Starter 200, Growth 1000) limit the NUMBER of AI calls. What a call costs depends on the model and the prompt size, so measure it:
+
+* Every successful provider response adds its `usage` (prompt tokens, completion tokens, cache-hit tokens) to `ai_usage_daily` and to the Redis day counters.
+  Set the prices in `infra/.env`: `AI_PRICE_IN_PER_M`, `AI_PRICE_OUT_PER_M`, `AI_PRICE_CACHED_PER_M` (USD per **million** tokens, from your provider's price page). They are
+  not guessed: with `0` the admin shows `n/a`. The estimated cost of a call is `fresh_input x in + cached_input x cached + output x out` (per million tokens).
+* **Is a plan still profitable?** Take a busy workspace's `aiCostMonthUsd` (Admin > Customers) and compare with its plan price (Starter $19, Growth $59). A model whose price makes a full
+  Starter quota cost more than $19 per month loses money: switch the model, lower `ai_calls_day` in Admin > Plans, or raise the price.
+* **Cheaper tier:** `AI_MODEL_FAST` (empty = use `AI_MODEL`) is used for extraction-like calls: picking the official website from search results, reading facts from crawled pages and
+  writing follow-ups. First messages, research and replies keep `AI_MODEL` because their quality sells the product. Test quality on your own leads before relying on it.
+* **Smaller prompts:** the knowledge base is sent with EVERY call. `AI_KNOWLEDGE_MAX_CHARS` (default 8000) clips it at a sentence boundary (the profile still stores up to 20000
+  characters). Providers with prompt caching bill the repeated system prompt at the cached price, which the accounting reflects.
+* **Safety net:** `AI_GLOBAL_DAILY_CAP` is mandatory in production (the API refuses to start with `COOKIE_SECURE=true` and a cap of 0). Retries to the provider are counted
+  (`retriesToday`) but never consume a workspace's quota.
+* Customers see only their token count (`GET /api/billing` -> `usage.aiTokensToday`), never a cost.
+
+Testing without a real provider: `backend/tests/e2e/test_p0_ai_cost.py` starts a fake OpenAI-compatible server; run it with a compose override that points api/worker at it
+(`AI_BASE_URL=http://host.docker.internal:<port>`, `AI_FAKE=false`, `AI_MODEL=model-main`, `AI_MODEL_FAST=model-fast`, `AI_PRICE_*`), see the header of the test file.
+

@@ -8,7 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import media, storage
+from . import bytecache, media, storage
 from .deps import rds
 from .models import Asset, AssetVariant, Draft, DraftAsset, Message, OutreachProfile, Plan, Tenant
 
@@ -181,8 +181,33 @@ def choose_variant(db: Session, a: Asset) -> tuple[str | None, str, str, str]:
     return v.id, v.storage_backend, v.storage_key, v.mime
 
 
+def _count(name: str) -> None:
+    """Hourly Redis counters shown on the admin capacity page (best effort)."""
+    from datetime import datetime, timezone
+
+    from .deps import rds
+
+    try:
+        k = f"media:{name}:{datetime.now(timezone.utc):%Y%m%d%H}"
+        if rds.incr(k) == 1:
+            rds.expire(k, 3 * 3600)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 async def read_file(backend: str, key: str) -> bytes:
-    return await storage.get_storage(backend).get(key)
+    """The bytes of a stored file. Recently used files come from an in-process cache (see bytecache.py), so a campaign that sends the same
+    image 300 times reads storage once instead of 300 times."""
+    ck = bytecache.make_key(backend, key)
+    data = bytecache.cache.get(ck)
+    if data is not None:
+        _count("cachehit")
+        return data
+    _count("cachemiss")
+    data = await storage.get_storage(backend).get(key)  # the one real storage read
+    _count("reads")
+    bytecache.cache.put(ck, data)
+    return data
 
 
 # ------------------------------------------------------------------ removing files

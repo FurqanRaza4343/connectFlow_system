@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from . import bytecache
 from .config import settings
 
 CHUNK = 64 * 1024
@@ -108,6 +109,7 @@ class LocalStorage(Storage):
             f.close()
 
     async def delete(self, key: str) -> None:
+        bytecache.cache.invalidate(bytecache.make_key(self.name, key))  # never serve a deleted file from memory
         try:
             await asyncio.to_thread(self._path(key).unlink, True)
         except OSError:
@@ -220,6 +222,7 @@ class CloudinaryStorage(Storage):
         return r.content
 
     async def delete(self, key: str) -> None:
+        bytecache.cache.invalidate(bytecache.make_key(self.name, key))
         rtype, public_id, _ = self._split(key)
         params = {"public_id": public_id, "timestamp": str(int(time.time())), "type": "private", "invalidate": "true"}
         form = {**params, "api_key": self.key, "signature": cloudinary_signature(params, self.secret)}

@@ -15,6 +15,7 @@ from . import outreach as og
 from .db import SessionLocal
 from .deps import rds
 from .enrich import enrich_lead
+from .locks import leader
 from .models import Draft, Lead
 
 log = logging.getLogger("outreach")
@@ -79,10 +80,12 @@ async def sender_loop() -> None:
 async def scheduler_loop() -> None:
     while True:
         try:
-            with SessionLocal() as db:
-                n = await og.scheduler_tick(db)
-                if n:
-                    log.info("scheduler started %s batch(es)", n)
+            async with leader("scheduler", 120) as is_leader:  # one replica at a time (the lock is renewed while a long batch runs)
+                if is_leader:
+                    with SessionLocal() as db:
+                        n = await og.scheduler_tick(db)
+                        if n:
+                            log.info("scheduler started %s batch(es)", n)
         except Exception:  # noqa: BLE001
             log.exception("scheduler loop error")
         await asyncio.sleep(30)
@@ -93,10 +96,12 @@ async def digest_loop() -> None:
     from .alerts import digest_tick
     while True:
         try:
-            with SessionLocal() as db:
-                n = await digest_tick(db)
-                if n:
-                    log.info("sent %s digest e-mail(s)", n)
+            async with leader("digest", 120) as is_leader:
+                if is_leader:
+                    with SessionLocal() as db:
+                        n = await digest_tick(db)
+                        if n:
+                            log.info("sent %s digest e-mail(s)", n)
         except Exception:  # noqa: BLE001
             log.exception("digest loop error")
         await asyncio.sleep(300)
@@ -124,15 +129,22 @@ async def enrich_loop() -> None:
         await asyncio.sleep(3)
 
 
-async def run() -> None:
-    for _ in range(30):  # the api container applies migrations at start-up; wait for the tables
+async def recover_loop() -> None:
+    """Every 2 min (one replica at a time): drafts stuck in 'sending' for over 10 minutes belonged to a worker that died -> failed for a human
+    to check. Replaces the old 'fail everything at start-up', which was unsafe with more than one worker replica."""
+    while True:
         try:
-            with SessionLocal() as db:
-                n = og.recover_interrupted(db)
-            if n:
-                log.warning("%s draft(s) were mid-send at shutdown -> marked failed for review", n)
-            break
-        except Exception:  # noqa: BLE001
-            await asyncio.sleep(2)
+            async with leader("recover", 120) as is_leader:
+                if is_leader:
+                    with SessionLocal() as db:
+                        n = og.recover_interrupted(db)
+                    if n:
+                        log.warning("%s draft(s) were stuck mid-send -> marked failed for review", n)
+        except Exception:  # noqa: BLE001  (the api container applies migrations at start-up: the tables may not exist yet)
+            log.warning("recover loop: not ready yet")
+        await asyncio.sleep(120)
+
+
+async def run() -> None:
     log.info("outreach loops started")
-    await asyncio.gather(sender_loop(), scheduler_loop(), enrich_loop(), digest_loop())
+    await asyncio.gather(sender_loop(), scheduler_loop(), enrich_loop(), digest_loop(), recover_loop())

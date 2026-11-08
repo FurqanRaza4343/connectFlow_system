@@ -114,6 +114,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    # Persistent: the append-only file (fsync every second) survives restarts, so rate limits, locks, counters and the enrichment queue are
+    # not lost. noeviction: when full, writes fail loudly instead of silently dropping keys that hold locks/counters.
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory', '192mb', '--maxmemory-policy', 'noeviction']
+    volumes: [redis-data:/data]
+    mem_limit: 256m
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 10s
@@ -290,6 +295,7 @@ services:
 
 volumes:
   pg-data:
+  redis-data:
   openwa-data:
   assets-data:
   kuma-data:

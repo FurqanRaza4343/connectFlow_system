@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from . import storage
 from .config import settings
 from .db import SessionLocal
+from .locks import leader
 from .models import Asset, AssetVariant
 
 log = logging.getLogger("assets")
@@ -36,10 +37,12 @@ async def assets_loop() -> None:
     await asyncio.sleep(120)  # let the stack settle after a restart
     while True:
         try:
-            with SessionLocal() as db:
-                res = await sweep_once(db)
-            if any(res.values()):
-                log.info("assets sweep: %s", res)
+            async with leader("assets-sweep", 300) as is_leader:  # one replica at a time
+                if is_leader:
+                    with SessionLocal() as db:
+                        res = await sweep_once(db)
+                    if any(res.values()):
+                        log.info("assets sweep: %s", res)
         except Exception:  # noqa: BLE001
             log.exception("assets sweep failed")
         await asyncio.sleep(3600)

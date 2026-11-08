@@ -47,8 +47,9 @@ type Cap = {
   db: { sizeBytes: number; tables: { name: string; rows: number; sizeBytes?: number }[] };
   retention: { lastRunAt: string | null; deleted: Record<string, number> | number };
   backups: { lastBackupAt: string | null; sizeBytes: number };
-  ai: { callsToday: number; globalCap: number; breakerOpen: boolean };
+  ai: { callsToday: number; globalCap: number | null; breakerOpen: boolean; retriesToday?: number; tokensToday?: number; costTodayUsd?: number };
 };
+const usd = (n: number | undefined | null) => ((n ?? 0) > 0 ? `$${(n ?? 0).toFixed(4)}` : 'n/a (set AI_PRICE_*)');
 const mb = (b: number) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GB` : `${(b / 1048576).toFixed(1)} MB`);
 /** Capacity block. The endpoint ships separately: a 404 just means "not available yet". */
 function Capacity() {
@@ -66,6 +67,7 @@ function Capacity() {
         <Kpi v={<When iso={data.retention?.lastRunAt} />} l="Retention last run" s={typeof data.retention?.deleted === 'number' ? `${num(data.retention.deleted)} rows removed` : `${num(Object.values(data.retention?.deleted || {}).reduce((a, b) => a + b, 0))} rows removed`} />
         <Kpi v={<When iso={data.backups?.lastBackupAt} />} l="Last backup" s={data.backups?.sizeBytes ? mb(data.backups.sizeBytes) : undefined} />
         <Kpi v={data.ai?.breakerOpen ? <Badge v="breaker open" tone="bad" /> : `${num(data.ai?.callsToday)}${data.ai?.globalCap ? ` / ${num(data.ai.globalCap)}` : ''}`} l="AI calls today" s={data.ai?.globalCap ? 'platform-wide cap' : 'no platform cap set'} />
+        <Kpi v={num(data.ai?.tokensToday)} l="AI tokens today" s={`${num(data.ai?.retriesToday)} provider retries · est. cost ${usd(data.ai?.costTodayUsd)}`} />
       </div>}
     </div>
   );

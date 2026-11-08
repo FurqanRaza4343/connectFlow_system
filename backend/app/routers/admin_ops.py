@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from .. import wa_client as wa
+from .. import ai_counters, wa_client as wa
 from ..config import settings
 from ..config_ops import ops
 from ..db import get_db
@@ -42,7 +42,8 @@ def _storage(db: Session, r: Any) -> dict[str, Any]:
     nbytes = int(db.query(func.coalesce(func.sum(Asset.size_bytes), 0)).scalar() or 0) + int(db.query(func.coalesce(func.sum(AssetVariant.size_bytes), 0)).scalar() or 0)
     return {"backend": settings.storage_backend, "assetsTotal": int(db.query(func.count(Asset.id)).scalar() or 0), "bytesTotal": nbytes,
             "mediaSends1h": int(r.get(f"media:sends:{hour}") or 0), "senderQueueDepth": int(db.query(func.count(Draft.id)).filter(Draft.status == "approved").scalar() or 0),
-            "uploadFailures1h": int(r.get(f"asset:fail:{hour}") or 0)}
+            "uploadFailures1h": int(r.get(f"asset:fail:{hour}") or 0),
+            "cache": {"hits1h": int(r.get(f"media:cachehit:{hour}") or 0), "misses1h": int(r.get(f"media:cachemiss:{hour}") or 0), "storageReads1h": int(r.get(f"media:reads:{hour}") or 0)}}
 
 
 @router.get("/api/admin/capacity")
@@ -64,14 +65,12 @@ async def capacity(db: Session = Depends(get_db), _: Ctx = Depends(platform_admi
     # ---- ops state kept in Redis by the worker / backup script / security fork
     r = _r()
     ret, bak = _json(r.get("ops:retention:last")), _json(r.get("ops:backup:last"))
-    today = datetime.now(timezone.utc).strftime("%Y%m%d")
-    cap = r.get("ai:global:cap")
     return {
         "gateway": {"sessions": sessions, "maxSessions": ops.gateway_max_sessions or None, "ready": ready, "qrPending": qr, "memMb": None},
         "db": {"sizeBytes": int(size), "tables": tables},
         "retention": {"lastRunAt": ret.get("at"), "deleted": ret.get("deleted", {})},
         "backups": {"lastBackupAt": bak.get("at"), "sizeBytes": bak.get("sizeBytes")},
-        "ai": {"callsToday": int(r.get(f"ai:global:{today}") or 0), "globalCap": int(cap) if cap and cap.isdigit() else None, "breakerOpen": bool(r.exists("ai:breaker"))},
+        "ai": {**ai_counters.read_today(r), "globalCap": settings.ai_global_daily_cap or None},
         "waitlist": int(r.llen("waitlist:instances")),
         "storage": _storage(db, r),
     }

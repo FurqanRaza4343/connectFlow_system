@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from . import counters
 from .deps import rds
-from .models import Tenant, UsageEvent
+from .models import AiUsageDaily, Tenant, UsageEvent
 
 
 def day_start() -> datetime:
@@ -75,6 +75,25 @@ def last_days(db: Session, tenant_id: str, days: int = 7) -> list[dict]:
 
 def ai_calls_today(db: Session, tenant_id: str) -> int:
     return db.query(func.count(UsageEvent.id)).filter(UsageEvent.tenant_id == tenant_id, UsageEvent.kind == "ai", UsageEvent.at >= day_start()).scalar() or 0
+
+
+def ai_tokens_today(db: Session, tenant_id: str) -> int:
+    """Provider tokens (prompt + completion) this workspace used today (UTC); 0 until the first real AI call."""
+    row = db.query(AiUsageDaily.tokens_in, AiUsageDaily.tokens_out).filter(AiUsageDaily.tenant_id == tenant_id, AiUsageDaily.day == datetime.now(timezone.utc).date()).first()
+    return int(row[0] + row[1]) if row else 0
+
+
+def ai_cost_usd(db: Session, tenant_ids: list[str], month: bool = False) -> dict[str, float]:
+    """tenant_id -> estimated cost in USD for today (or the current UTC month). 0 when no price is configured (AI_PRICE_*)."""
+    now = datetime.now(timezone.utc)
+    q = db.query(AiUsageDaily.tenant_id, func.coalesce(func.sum(AiUsageDaily.est_cost_micro_usd), 0)).filter(AiUsageDaily.tenant_id.in_(tenant_ids))
+    q = q.filter(AiUsageDaily.day >= now.date().replace(day=1)) if month else q.filter(AiUsageDaily.day == now.date())
+    return {t: round(int(v) / 1_000_000, 6) for t, v in q.group_by(AiUsageDaily.tenant_id).all()}
+
+
+def ai_tokens_by_tenant(db: Session, tenant_ids: list[str]) -> dict[str, int]:
+    rows = db.query(AiUsageDaily.tenant_id, AiUsageDaily.tokens_in + AiUsageDaily.tokens_out).filter(AiUsageDaily.tenant_id.in_(tenant_ids), AiUsageDaily.day == datetime.now(timezone.utc).date()).all()
+    return {t: int(n) for t, n in rows}
 
 
 def reserve_ai(db: Session, tenant_id: str) -> None:

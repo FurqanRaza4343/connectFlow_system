@@ -28,6 +28,8 @@ class OpsSettings(BaseSettings):
     retention_notification_days: int = 90
     retention_audit_months: int = 24
     retention_usage_months: int = 13
+    retention_ai_usage_months: int = 13
+    retention_security_months: int = 13
     retention_draft_days: int = 180
     retention_batch_months: int = 12
     retention_batch_size: int = 5000

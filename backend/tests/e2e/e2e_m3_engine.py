@@ -211,11 +211,16 @@ time.sleep(35)
 check("a lead that already replied is never followed up", not [d for d in A("GET", f"/api/leads/{RP['id']}/thread")[1]["drafts"] if d["kind"] == "followup"])
 
 # ---------------- restart recovery
+# Only a draft that has been 'sending' for more than 10 minutes belongs to a dead worker; a fresh one is another replica's live send and must be left alone.
 rid = str(uuid.uuid4())
-sql(f"insert into drafts (id,tenant_id,lead_id,kind,body,status,note,incoming,source,needs_human,instruction,not_before,created_at,sending_at) values ('{rid}','{TA}','{FU['id']}','followup','x','sending','','','ai',false,'',now(),now(),now())")
+rid_live = str(uuid.uuid4())
+sql(f"insert into drafts (id,tenant_id,lead_id,kind,body,status,note,incoming,source,needs_human,instruction,not_before,created_at,sending_at) values ('{rid}','{TA}','{FU['id']}','followup','x','sending','','','ai',false,'',now(),now(),now() - interval '15 minutes')")
+sql(f"insert into drafts (id,tenant_id,lead_id,kind,body,status,note,incoming,source,needs_human,instruction,not_before,created_at,sending_at) values ('{rid_live}','{TA}','{FU['id']}','followup','y','sending','','','ai',false,'',now(),now(),now())")
 subprocess.run(["docker", "compose", "restart", "worker"], cwd=INFRA, capture_output=True)
 rec = wait(lambda: sql(f"select status from drafts where id='{rid}'") == "failed", 40, 2)
-check("restart recovery: a draft stuck in 'sending' becomes failed with a 'check WhatsApp' note", rec and "check the chat" in sql(f"select note from drafts where id='{rid}'"))
+check("restart recovery: a draft stuck in 'sending' for 15 minutes becomes failed with a 'check WhatsApp' note", rec and "check the chat" in sql(f"select note from drafts where id='{rid}'"))
+check("restart recovery: a draft that started sending seconds ago (another replica's live send) is NOT touched", sql(f"select status from drafts where id='{rid_live}'") == "sending", sql(f"select status,note from drafts where id='{rid_live}'"))
+sql(f"delete from drafts where id='{rid_live}'")
 
 # ---------------- scheduler
 A("PUT", "/api/outreach/profile", {**prof, "dry_run": True, "auto_run": True, "interval_hours": 1, "daily_limit": 100, "batch_size": 2})

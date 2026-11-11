@@ -1,4 +1,4 @@
-import http.cookiejar, json, subprocess, sys, time, urllib.request, urllib.error
+import http.cookiejar, json, os, subprocess, sys, time, urllib.request, urllib.error
 from e2e_env import ADMIN_HOST, APP_HOST, BASE, INFRA, require_admin_password, require_fake_engine, require_mailpit  # noqa: F401
 
 HOST = {"Host": APP_HOST, "X-Requested-With": "ConnectFlow", "Content-Type": "application/json"}
@@ -41,9 +41,10 @@ A("POST", "/api/auth/signup", {"email": f"m3a-{stamp}@example.com", "password": 
 B = sess()
 B("POST", "/api/auth/signup", {"email": f"m3b-{stamp}@example.com", "password": "Sup3rSecretPw!", "company": "M3 Beta"})
 
-legacy = open(r"d:\For sir\lead_gen_whatsapp\legacy\data\leads.csv", encoding="utf-8").read()
+# synthetic file in the old One Group CSV format (same 21 headers, 30 rows, 24 valid PK numbers): the real legacy/ folder is not in the repository
+legacy = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "legacy_leads.csv"), encoding="utf-8").read()
 st, an = A("POST", "/api/leads/import/analyze", {"csv": legacy})
-check("analyze reads the real legacy CSV", st == 200 and an["rowCount"] >= 25, an if st != 200 else "")
+check("analyze reads a CSV in the legacy format", st == 200 and an["rowCount"] >= 25, an if st != 200 else "")
 m = an["mapping"]
 check("headers auto-mapped (Company, WhatsApp Number, Website, Email, Role Hiring For)", m.get("Company") == "company" and m.get("WhatsApp Number") == "phone" and m.get("Website") == "website" and m.get("Email") == "email" and m.get("Role Hiring For") == "role", m)
 check("blank/unknown columns left unmapped, not guessed wrongly", m.get("Google Rating") is None and m.get("ID") is None, m)

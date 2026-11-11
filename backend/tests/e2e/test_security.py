@@ -87,8 +87,11 @@ def flush():
 
 
 env = open(os.path.join(INFRA, ".env"), encoding="utf-8").read()
-ADM_PW = re.search(r"ADMIN_PASSWORD=(.*)", env).group(1).strip()
-ADM_EMAIL = (re.search(r"ADMIN_EMAIL=(.*)", env) or [None, "admin@connectflow.example.com"])[1].strip() if re.search(r"ADMIN_EMAIL=(.*)", env) else "admin@connectflow.example.com"
+# the LAST assignment wins (CI copies .env.example, which has an empty ADMIN_PASSWORD=, and appends the real value after it); the runner also exports E2E_ADMIN_PASSWORD
+_pw = re.findall(r"^ADMIN_PASSWORD=(.*)$", env, re.M)
+ADM_PW = (os.environ.get("E2E_ADMIN_PASSWORD") or (_pw[-1] if _pw else "")).strip()
+_em = [e.strip() for e in re.findall(r"^ADMIN_EMAIL=(.*)$", env, re.M) if e.strip()]
+ADM_EMAIL = _em[-1] if _em else "admin@connectflow.example.com"
 RESEND_ON = bool(re.search(r"^RESEND_API_KEY=.+", env, re.M))
 
 

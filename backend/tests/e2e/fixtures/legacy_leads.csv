@@ -1,0 +1,31 @@
+ID,Company,Role Hiring For,Business Type,Address,Phone (raw),WhatsApp Number,Website,Email,LinkedIn,Facebook,Leadership,Google Rating,Source,Notes,Status,Research Summary,Message Sent,Sent At,Last Reply,Follow-up Stage
+1,Fixture Company 01,AI engineer,Software,"Block 1, Lahore, Pakistan",0300 530 7920,0300 530 7920,fixture01.example,info@fixture01.example.com,,,,4.5,fixture,,new,,,,,0
+2,Fixture Company 02,AI engineer,Software,"Block 2, Lahore, Pakistan",0301 531 5839,0301 531 5839,fixture02.example,info@fixture02.example.com,,,,,fixture,,new,,,,,0
+3,Fixture Company 03,Operations,Software,"Block 3, Lahore, Pakistan",0302 532 3758,0302 532 3758,fixture03.example,info@fixture03.example.com,,,,4.5,fixture,,new,,,,,0
+4,Fixture Company 04,AI engineer,Software,"Block 4, Lahore, Pakistan",0303 533 1677,0303 533 1677,fixture04.example,info@fixture04.example.com,,,,,fixture,,new,,,,,0
+5,Fixture Company 05,AI engineer,Software,"Block 5, Lahore, Pakistan",0304 533 9596,0304 4300555; 0305 4300556,fixture05.example,info@fixture05.example.com,,,,4.5,fixture,,new,,,,,0
+6,Fixture Company 06,Operations,Software,"Block 6, Lahore, Pakistan",0305 534 7515,0305 534 7515,fixture06.example,info@fixture06.example.com,,,,,fixture,,new,,,,,0
+7,Fixture Company 07,AI engineer,Software,"Block 7, Lahore, Pakistan",0306 535 5434,0306 535 5434,fixture07.example,info@fixture07.example.com,,,,4.5,fixture,,new,,,,,0
+8,Fixture Company 08,AI engineer,Software,"Block 8, Lahore, Pakistan",0307 536 3353,0307 536 3353,fixture08.example,info@fixture08.example.com,,,,,fixture,,new,,,,,0
+9,Fixture Company 09,Operations,Software,"Block 9, Lahore, Pakistan",0308 537 1272,0308 537 1272,fixture09.example,info@fixture09.example.com,,,,4.5,fixture,,new,,,,,0
+10,Fixture Company 10,AI engineer,Software,"Block 10, Lahore, Pakistan",0309 537 9191,0309 537 9191,fixture10.example,info@fixture10.example.com,,,,,fixture,,new,,,,,0
+11,Fixture Company 11,AI engineer,Software,"Block 11, Lahore, Pakistan",0310 538 7110,0310 538 7110,fixture11.example,info@fixture11.example.com,,,,4.5,fixture,,new,,,,,0
+12,Fixture Company 12,Operations,Software,"Block 12, Lahore, Pakistan",0311 539 5029,0311 539 5029,fixture12.example,info@fixture12.example.com,,,,,fixture,,new,,,,,0
+13,Fixture Company 13,AI engineer,Software,"Block 13, Lahore, Pakistan",0312 540 2948,0312 540 2948,fixture13.example,info@fixture13.example.com,,,,4.5,fixture,,new,,,,,0
+14,Fixture Company 14,AI engineer,Software,"Block 14, Lahore, Pakistan",0313 541 0867,0313 541 0867,fixture14.example,info@fixture14.example.com,,,,,fixture,,new,,,,,0
+15,Fixture Company 15,Operations,Software,"Block 15, Lahore, Pakistan",0314 541 8786,0314 541 8786,fixture15.example,info@fixture15.example.com,,,,4.5,fixture,,new,,,,,0
+16,Fixture Company 16,AI engineer,Software,"Block 16, Lahore, Pakistan",0315 542 6705,0315 542 6705,fixture16.example,info@fixture16.example.com,,,,,fixture,,new,,,,,0
+17,Fixture Company 17,AI engineer,Software,"Block 17, Lahore, Pakistan",0316 543 4624,0316 543 4624,fixture17.example,info@fixture17.example.com,,,,4.5,fixture,,new,,,,,0
+18,Fixture Company 18,Operations,Software,"Block 18, Lahore, Pakistan",0317 544 2543,0317 544 2543,fixture18.example,info@fixture18.example.com,,,,,fixture,,new,,,,,0
+19,Fixture Company 19,AI engineer,Software,"Block 19, Lahore, Pakistan",0318 545 0462,0318 545 0462,fixture19.example,info@fixture19.example.com,,,,4.5,fixture,,new,,,,,0
+20,Fixture Company 20,AI engineer,Software,"Block 20, Lahore, Pakistan",0319 545 8381,0319 545 8381,fixture20.example,info@fixture20.example.com,,,,,fixture,,new,,,,,0
+21,Fixture Company 21,Operations,Software,"Block 21, Lahore, Pakistan",0320 546 6300,0320 546 6300,fixture21.example,info@fixture21.example.com,,,,4.5,fixture,,new,,,,,0
+22,Fixture Company 22,AI engineer,Software,"Block 22, Lahore, Pakistan",0321 547 4219,0321 547 4219,fixture22.example,info@fixture22.example.com,,,,,fixture,,new,,,,,0
+23,Fixture Company 23,AI engineer,Software,"Block 23, Lahore, Pakistan",0322 548 2138,0322 548 2138,fixture23.example,info@fixture23.example.com,,,,4.5,fixture,,new,,,,,0
+24,Fixture Company 24,Operations,Software,"Block 24, Lahore, Pakistan",0323 549 0057,0323 549 0057,fixture24.example,info@fixture24.example.com,,,,,fixture,,new,,,,,0
+25,Fixture Company 25,AI engineer,Software,"Block 25, Lahore, Pakistan",,Not listed,fixture25.example,info@fixture25.example.com,,,,4.5,fixture,,new,,,,,0
+26,Fixture Company 26,AI engineer,Software,"Block 26, Lahore, Pakistan",,Not listed,fixture26.example,info@fixture26.example.com,,,,,fixture,,new,,,,,0
+27,Fixture Company 27,Operations,Software,"Block 27, Lahore, Pakistan",,Not listed,fixture27.example,info@fixture27.example.com,,,,4.5,fixture,,new,,,,,0
+28,Fixture Company 28,AI engineer,Software,"Block 28, Lahore, Pakistan",,Not listed,fixture28.example,info@fixture28.example.com,,,,,fixture,,new,,,,,0
+29,Fixture Company 29,AI engineer,Software,"Block 29, Lahore, Pakistan",,Not listed,fixture29.example,info@fixture29.example.com,,,,4.5,fixture,,new,,,,,0
+30,Fixture Company 30,Operations,Software,"Block 30, Lahore, Pakistan",,Not listed,fixture30.example,info@fixture30.example.com,,,,,fixture,,new,,,,,0

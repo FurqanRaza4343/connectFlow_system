@@ -146,8 +146,12 @@ try:
     sql(f"update instances set outreach_enabled=true where id='{I2}'")
     if rep:
         A("POST", "/api/drafts/approve", {"ids": [rep["id"]]})
-        time.sleep(8)
-        row = sql(f"select status||'|'||note from drafts where id='{rep['id']}'")
+        row = ""
+        for _ in range(20):   # up to 40 s: a slow CI runner needs longer than a laptop for the sender to look at the draft
+            time.sleep(2)
+            row = sql(f"select status||'|'||note from drafts where id='{rep['id']}'")
+            if "disconnected" in row.lower():
+                break
         check("reply NOT sent from another number when its own is down", row.startswith(("pending|", "approved|")) and "disconnected" in row.lower(), row)
         check("no outbound reply was recorded on number 2", sql(f"select count(*) from messages where tenant_id='{TA}' and direction='out' and kind='reply' and instance_id='{I2}'") == "0")
         sql(f"update instances set status='ready' where id='{I1}'")

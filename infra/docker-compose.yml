@@ -42,6 +42,7 @@ services:
   # ---------------------------------------------------------------- application
   api:
     build: ../backend
+    <<: *dns
     env_file: .env
     # OpenWA writes its admin key (.api-key) mode 0600 for uid 997 (official image); we must be that uid to read it.
     # Verify with: docker compose exec wa-gateway id
@@ -70,6 +71,7 @@ services:
   # (scheduler for batches/follow-ups, paced sender with warm-up, lead enrichment queue).
   worker:
     build: ../backend
+    <<: *dns
     command: ['python', '-m', 'app.worker']
     env_file: .env
     user: '997:997'   # reads the gateway key (.api-key) to send messages, like the api service
@@ -287,6 +289,12 @@ services:
       - WEBHOOK_PUBLIC_URL=http://orchestrator:3100/webhook
       - SEARXNG_URL=http://searxng:8080
       - TZ=${TZ:-Asia/Karachi}
+      # passwords and keys come from infra/.env (one place for every password); empty default keeps servers without the legacy stack starting
+      - DASHBOARD_PASSWORD=${DASHBOARD_PASSWORD:-}
+      - SESSION_SECRET=${LEGACY_SESSION_SECRET:-}
+      - WEBHOOK_SECRET=${LEGACY_WEBHOOK_SECRET:-}
+      - OPENWA_API_KEY=${LEGACY_OPENWA_API_KEY:-}
+      - DEEPSEEKER_API_KEY=${AI_API_KEY:-}
     volumes:
       - ../legacy/orchestrator/state:/app/state   # leads, messages, drafts, settings (SQLite)
       - ../legacy/data:/data                      # company knowledge (*.md) and first-start leads.csv

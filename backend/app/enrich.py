@@ -16,6 +16,9 @@ from .models import Lead, OutreachProfile
 from .netguard import UnsafeUrl, assert_crawlable
 
 UA = "Mozilla/5.0 (compatible; ConnectFlowBot/1.0)"
+PK_PHONE = re.compile(r"(?<!\d)(?:\+92|0092|92)[\s-]?\(?0?\)?3\d{2}[\s-]?\d{7}(?!\d)|(?<!\d)03\d{2}[\s-]?\d{7}(?!\d)|(?<!\d)0\d{2}[\s-]?\d{7,8}(?!\d)")
+WA_LINK = re.compile(r"(?:wa\.me/|api\.whatsapp\.com/send/?\?phone=|whatsapp\.com/send/?\?phone=)\+?(\d{8,15})", re.I)
+CONTACT_PATHS = ("/contact", "/contact-us", "/contact-us/", "/contactus", "/about", "/about-us", "/about-us/", "/our-team", "/team")
 DIRECTORY = re.compile(r"indeed|mustakbil|rozee|glassdoor|zoominfo|rocketreach|crunchbase|facebook\.com|linkedin\.com|instagram\.com|twitter\.com|x\.com|youtube|wikipedia|google\.|yelp|justdial|olx", re.I)
 JUNK_EMAIL = re.compile(r"@(example|test|domain|email|yourdomain|yourcompany|sample|mysite)\.[a-z.]+$|^(you|your|name|user|email|john|jane)@|sentry|wixpress|noreply|no-reply|\.(png|jpe?g|gif|svg|webp|css|js)$", re.I)
 
@@ -27,8 +30,10 @@ def html_to_text(html: str) -> str:
     return re.sub(r"\s*\n\s*", "\n", re.sub(r"[ \t]+", " ", t)).strip()
 
 
-async def fetch_page(url: str, timeout: float = 12) -> dict | None:
-    """GET with manual redirects (max 4), validating each hop. Returns {url, html, text} or None. Never raises."""
+async def fetch_page(url: str, timeout: float = 12, why: list[str] | None = None) -> dict | None:
+    """GET with manual redirects (max 4), validating each hop. Returns {url, html, text} or None. Never raises.
+    `why` collects the reason when it fails so the report can say what went wrong. A site that refuses automated access
+    (403/406) is skipped: we never pretend to be a browser to get around it."""
     cur = url
     try:
         async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, headers={"User-Agent": UA, "Accept": "text/html,*/*"}) as c:
@@ -38,12 +43,22 @@ async def fetch_page(url: str, timeout: float = 12) -> dict | None:
                 if 300 <= r.status_code < 400 and r.headers.get("location"):
                     cur = urljoin(cur, r.headers["location"])
                     continue
-                if r.status_code >= 400 or not re.search(r"html|text", r.headers.get("content-type", ""), re.I):
+                if r.status_code >= 400:
+                    if why is not None:
+                        why.append(f"{url} answered HTTP {r.status_code}" + (" (site blocks automated access: skipped)" if r.status_code in (403, 406) else ""))
+                    return None
+                if not re.search(r"html|text", r.headers.get("content-type", ""), re.I):
+                    if why is not None:
+                        why.append(f"{url} is not a web page")
                     return None
                 html = r.text[:600_000]
                 return {"url": cur, "html": html, "text": html_to_text(html)[:12_000]}
-    except (UnsafeUrl, httpx.HTTPError, UnicodeDecodeError):
-        return None
+    except UnsafeUrl as e:
+        if why is not None:
+            why.append(f"{url}: {e}")
+    except (httpx.HTTPError, UnicodeDecodeError) as e:
+        if why is not None:
+            why.append(f"{url}: {type(e).__name__}")
     return None
 
 
@@ -55,9 +70,16 @@ def clean_email(raw: str) -> str:
 async def crawl_site(website: str) -> dict:
     """Home page + up to 4 contact/about/team pages on the same host."""
     start = website if re.match(r"https?://", website, re.I) else f"https://{website}"
-    home = await fetch_page(start) or (await fetch_page(start.replace("https://", "http://")) if start.startswith("https://") else None)
+    why: list[str] = []
+    pu = urlparse(start)
+    alt_host = pu.netloc[4:] if pu.netloc.startswith("www.") else f"www.{pu.netloc}"
+    home = None
+    for v in (start, start.replace(pu.netloc, alt_host, 1), start.replace("https://", "http://", 1)):  # https, the www / non-www twin, plain http
+        home = await fetch_page(v, why=why)
+        if home:
+            break
     if not home:
-        return {"pages": [], "links": {}, "emails": [], "phones": []}
+        return {"pages": [], "links": {}, "emails": [], "phones": [], "error": "; ".join(dict.fromkeys(why))[:300] or "no answer"}
     host = urlparse(home["url"]).netloc.replace("www.", "")
     pages, seen, cands = [home], {home["url"]}, []
     links = {"linkedin": "", "facebook": "", "instagram": ""}
@@ -83,9 +105,21 @@ async def crawl_site(website: str) -> dict:
         for m in re.findall(r"[\w.+-]+@[\w-]+\.[\w.-]+", pg["text"]):
             if clean_email(m):
                 emails.add(clean_email(m))
+        for m in WA_LINK.findall(pg["html"]):  # a wa.me link is the clinic's own WhatsApp number
+            phones.add(m if m.startswith("0") else f"+{m}")  # wa.me/0333... is a local number: keep it local so it normalises
+        for m in re.findall(r'"(?:telephone|phone)"\s*:\s*"([^"]{7,25})"', pg["html"], re.I):  # JSON-LD / schema.org
+            phones.add(m.strip())
+        for m in re.findall(r'"email"\s*:\s*"([^"]+)"', pg["html"], re.I):
+            if clean_email(m):
+                emails.add(clean_email(m))
+        for m in PK_PHONE.findall(pg["text"]):  # numbers written as plain text in the page
+            phones.add(re.sub(r"\s+", " ", m).strip())
 
     harvest(home)
-    for u in cands[:4]:
+    if len(cands) < 2:  # no contact link on the home page: try the usual paths on the same host
+        base = f"{urlparse(home['url']).scheme}://{urlparse(home['url']).netloc}"
+        cands += [base + p for p in CONTACT_PATHS if base + p not in cands]
+    for u in cands[:5]:
         if u in seen:
             continue
         seen.add(u)
@@ -156,7 +190,7 @@ async def enrich_lead(db: Session, lead: Lead, profile: OutreachProfile, overwri
     facts: dict = {}
     if website:
         crawl = await crawl_site(website)
-        report["steps"].append(f"crawl: {len(crawl['pages'])} page(s)")
+        report["steps"].append(f"crawl: {len(crawl['pages'])} page(s)" + (f" ({crawl['error']})" if crawl.get("error") else ""))
         if crawl["pages"]:
             try:
                 facts = await ai.extract_facts(name, crawl["pages"], tenant_id=lead.tenant_id)

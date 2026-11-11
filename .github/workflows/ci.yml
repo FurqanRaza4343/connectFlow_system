@@ -81,6 +81,7 @@ jobs:
             echo "OPENWA_WEBHOOK_SECRET=$(rnd)"
             echo "OPENWA_DB_PASSWORD=$(rnd)"
             echo "BACKUP_PASSPHRASE=$(rnd)"
+            echo "ENCRYPTION_KEY=$(python3 -c 'import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())')"   # a valid Fernet key (the config refuses anything else)
             echo "SEARXNG_SECRET=$(rnd)"
             echo "ADMIN_PASSWORD=Ci$(rnd)!9"
             echo "AI_FAKE=true"

@@ -523,3 +523,37 @@ Ye asal mein disconnect nahi tha. OpenWA har route par per-ghanta limit lagata h
 
 ### 14.14 Lead kholne par
 Lead par click karne par pehle **Details** khulta hai (edit form), phir *Data & research*, *Drafts*, aur **Conversation sab se aakhir mein**.
+
+---
+
+## 15. WhatsApp Status (stories): automatic posting
+
+Dashboard mein naya tab **WhatsApp Status** (`#stories`). Status 24 ghante rehta hai aur sirf wahi log dekhte hain jinhon ne aap ka number save kiya ho. WhatsApp (OpenWA) yeh nahi batata ke kis ne dekha.
+
+**Teen tareeqe:** (1) *From my business data*: AI aap ka company data (AI & Templates tab) aur current offers parh kar 3 ideas deta hai; (2) *My prompt*: aap likhte hain ("30% off offer banao"), preset buttons bhi hain; (3) *My own*: apna text, apni picture, aur neeche website/Instagram/Facebook ki line.
+
+**Image kahan se?** DeepSeek image nahi bana sakta (uska output sirf text hai). Is liye: DeepSeek text likhta hai, aur picture hamara `render.mjs` banata hai (5 designs, aap ka logo aur rang, 1080x1920 PNG, Urdu bhi). Optional AI background `IMAGE_API_KEY` se (default Together AI FLUX.1 schnell, `IMAGE_BASE_URL` / `IMAGE_MODEL` / `IMAGE_COST_USD` badal sakte hain): background mein text nahi hota, text hamesha hum upar likhte hain taake spelling ghalat na ho.
+
+**Autopilot:** Status tab mein on/off, posting times (default 11:00 aur 19:00), roz ki hadd (max 5), *Wait for my approval* (default) ya *Post by itself* (10 minute tak jitter), picture style (card / AI / mixed) aur AI pictures ki roz/mahine ki hadd. AI sirf wahi offer likhta hai jo *Current offers* box mein ya aap ke prompt mein ho; warna evergreen content (services, tip, trust). Pichhle 14 din ke headlines dohrata nahi.
+
+**Safety:** `Dry-run` on ho to kuch post nahi hota; session `ready` hona chahiye; post se pehle `posting` marker likha jata hai, aur agar jawab ka pata na chale (timeout/crash) to khud dobara nahi bheja jata (dobara story lagne se behtar hai ke aap check karein); gateway ka 429 sirf reschedule karta hai; har slot ka marker pehle likha jata hai.
+
+**Engine:** purana OpenWA (whatsapp-web.js) Status aap ki WhatsApp privacy setting ke audience ko bhejta hai. Naya gateway (Baileys) mein audience list zaroori hai: Settings mein `statusRecipients` (max 256 numbers).
+
+**Files:** `src/status.mjs` (engine), `src/render.mjs`, `src/imageapi.mjs`, `src/dashboard/public/stories.js`, tables `status_posts` / `status_usage`. Test (nakli OpenWA/AI/image servers, asli DB nahi chhoota): `docker run --rm --entrypoint node -e OG_STATE_DIR=/tmp/st <image> src/selftest-status.mjs`.
+
+**Image mein naya package:** `@resvg/resvg-js` (picture banane ke liye) aur fonts (DejaVu, Noto Naskh Arabic). Agar install na ho to Status text-status ki tarah post hota hai.
+
+### 15.1 Status v2: Brand kit, link, Campaign Planner, calendar, charts
+
+Status tab ab 4 hisson mein hai: **Create**, **Planner**, **Brand kit & Autopilot**, **Posts**.
+
+- **Free card kaise banta hai:** `src/render.mjs` SVG text banata hai (8 designs) aur `@resvg/resvg-js` (Rust ka renderer, Node addon) usay server par PNG (1080x1920) mein badalta hai. Browser, Chromium ya koi web API nahi chahiye; fonts container ke Linux fonts hain. Text hamesha hum likhte hain, isliye spelling ghalat nahi hoti.
+- **Button par link:** WhatsApp Status ki picture par koi tappable jagah nahi hoti, sirf **caption** ka link tap hota hai. Is liye "Button link" (None / Chat on WhatsApp = `wa.me` / apna `https://` link) caption mein `👉 button text: link` ban kar jata hai. Caption 1024 se barhe to link bachta hai, text kat'ta hai.
+- **Rang:** Brand kit mein main / dark / text colour aur 6 palettes; har post ka alag rang bhi chun sakte hain. Text ka rang khud chunta hai (contrast 4.5 se upar), jab tak aap apna na den.
+- **Picture upload:** apni picture par overlay (kitni dark), text ki position (top/center/bottom), ya "picture only".
+- **Autopilot** ab Brand kit istemal karta hai (designs ka set, button text/link, footer), aur uske draft usi editor mein khulte hain.
+- **Campaign Planner:** brief + maqsad + 7/14/21/30 din + har 6/8/12/24 ghante (ya din mein 2-3 posts) + posting window. AI khud themes tay karta hai (tips, service, trust, offer, greeting, cta) aur sirf zaroorat par (zyada se zyada 3) sawal poochta hai; phir saari posts 6-6 ki batches mein likhta hai; har post card ban kar **draft** banti hai. Aakhir mein ek sawal: **Approve all** ya badlein. Approve se pehle kuch post nahi hota. Offer sirf "Current offers" box ya aap ke brief se aa sakta hai. Har din 5 posts se zyada nahi, aur ek campaign mein 150 posts tak.
+- **Calendar aur charts:** month calendar (har post ka waqt aur state), KPI tiles, posts per day (posted / planned / failed, table view bhi), content mix donut, AI picture ka istemal. Rang `dataviz` checker se light aur dark dono mein verify hue.
+- **AI pictures (provider switch):** `.env` mein `IMAGE_PROVIDER=together` (FLUX.1 schnell, ~$0.003 per picture) ya `openai` (gpt-image-1-mini, `IMAGE_QUALITY=low|medium`, ~$0.006 / $0.015 per picture), `IMAGE_API_KEY`, optional `IMAGE_MODEL`, `IMAGE_BASE_URL`, `IMAGE_COST_USD` (kharcha track karne ke liye). Daam blogs aur provider pages se hain: key lene se pehle provider ka page dekhein. Daily/monthly hadd Brand kit & Autopilot tab mein.
+- **OpenWA `/chats` par Status kyun nahi dikhta:** OpenWA `status@broadcast` ko Chats se chhupata hai aur apne post kiye status ko store hi nahi karta; uska Status tab sirf doosron ke status dikhata hai. Apna status phone mein *Status / Updates → My status* mein dikhta hai.

@@ -6,8 +6,9 @@ import { Attachment, AttachmentStrip } from '../components/media';
 type Lead = {
   id: string; listId: string | null; company: string; contactName: string; role: string; businessType: string; address: string; phoneRaw: string; whatsapp: string;
   country: string; website: string; email: string; linkedin: string; facebook: string; notes: string; status: string; research: string; firstMessage: string; lastReply: string; createdAt: string;
-  enriched?: boolean; via?: Via; instanceId?: string | null; sentAt?: string | null; followupStage?: number;
+  enriched?: boolean; enrichment?: Report | null; via?: Via; instanceId?: string | null; sentAt?: string | null; followupStage?: number;
 };
+type Report = { at?: string; steps?: string[]; found?: Record<string, any>; applied?: Record<string, string> };
 type Thread = { messages: { id: string; direction: 'in' | 'out'; body: string; kind: string; at: string; attachments?: Attachment[]; linkUrl?: string | null; mediaKind?: string | null }[]; drafts: { id: string; body: string; status: string; kind: string }[] };
 type LeadsRes = { rows: Lead[]; total: number; page: number; pages: number; counts: Record<string, number>; withNumber: number };
 type List = { id: string; name: string; count: number };
@@ -56,6 +57,9 @@ export function Leads({ me }: { me: Me }) {
     try { const r = await api<{ queued: number }>('/api/leads/enrich', 'POST', body); setMsg(`Improving ${r.queued} lead(s) in the background: websites, contacts and socials.`); setEnr({ running: r.queued > 0, done: 0, total: r.queued }); setSel(new Set()); }
     catch (e: any) { setErr(e.message); }
   };
+  const cancelImprove = async () => {
+    try { const r = await api<{ cancelled: number }>('/api/leads/enrich/cancel', 'POST'); setMsg(`Cancelled: ${r.cancelled} queued lead(s) dropped.`); } catch (e: any) { setErr(e.message); }
+  };
   const rowAct = async (id: string, what: 'research' | 'draft') => {
     setErr(''); setMsg(''); setRowBusy(`${what}:${id}`);
     try {
@@ -75,7 +79,8 @@ export function Leads({ me }: { me: Me }) {
         <div><h3 style={{ margin: 0 }}>Leads</h3><p className="muted" style={{ margin: '4px 0 0' }}>{total} leads · {res?.withNumber ?? 0} with a valid WhatsApp number</p></div>
         <div className="row">
           <a className="btn-like" href={`/api/leads-export.csv?status=${f.status}&list_id=${f.list}`}>Export CSV</a>
-          {canEdit && <button disabled={!!enr?.running} onClick={() => improve({ all: true })} title="Find websites, emails and social links for leads that are missing them">{enr?.running ? `Improving ${enr.done}/${enr.total}…` : 'Improve data'}</button>}
+          {canEdit && <button disabled={!!enr?.running} onClick={() => improve({ all: true })} title="AI scraper: finds the website, reads it, and fills missing emails, phones and social links for every lead not improved yet">{enr?.running ? `Improving ${enr.done}/${enr.total}…` : 'AI improve all'}</button>}
+          {canEdit && enr?.running && <button onClick={cancelImprove} title="Stop the queued leads (the one in progress finishes)">Cancel</button>}
           {canEdit && <><button onClick={() => setImp(true)}>Import CSV</button><button className="primary" onClick={() => setEdit({})}>+ Add lead</button></>}
         </div>
       </div>
@@ -156,7 +161,18 @@ function LeadDialog({ lead, onClose, onSave, onDelete }: { lead: Partial<Lead>; 
   const [thread, setThread] = useState<Thread | null>(null);
   const [note, setNote] = useState('');
   const [working, setWorking] = useState('');
+  const [report, setReport] = useState<Report | null>(lead.enrichment || null);
   useEffect(() => { if (lead.id) api<Thread>(`/api/leads/${lead.id}/thread`).then(setThread).catch(() => setThread(null)); }, [lead.id]);
+  async function improveThis() {
+    setWorking('improve'); setNote('');
+    try {
+      const r = await api<Lead>(`/api/leads/${lead.id}/improve`, 'POST', {});
+      setReport(r.enrichment || null);
+      setResearch(r.research || '');
+      setD((x) => ({ ...x, contact_name: r.contactName || x.contact_name, phone_raw: r.phoneRaw || r.whatsapp || x.phone_raw, website: r.website || x.website, email: r.email || x.email }));  // keep the form in sync, else Save would blank them again
+      setNote(Object.keys(r.enrichment?.applied || {}).length ? 'Lead improved: new fields were filled in. Press Save to keep any other edits.' : 'Done: nothing new found to fill in.');
+    } catch (e: any) { setNote(e.message); } finally { setWorking(''); }
+  }
   async function run(what: 'research' | 'draft') {
     setWorking(what); setNote('');
     try {
@@ -177,10 +193,19 @@ function LeadDialog({ lead, onClose, onSave, onDelete }: { lead: Partial<Lead>; 
         {lead.id && (
           <div className="panel2">
             <div className="row between"><b>Research {lead.enriched ? <span className="badge ok">data improved</span> : null}</b>
-              <span className="row" style={{ gap: 6 }}><button type="button" disabled={!!working} onClick={() => run('research')}>{working === 'research' ? 'Researching…' : 'Research now'}</button>
+              <span className="row" style={{ gap: 6 }}><button type="button" className="primary" disabled={!!working} onClick={improveThis} title="AI scraper: find the website, read it, fill in missing contact details">{working === 'improve' ? 'Improving… (20-40 s)' : 'Improve this lead with AI'}</button><button type="button" disabled={!!working} onClick={() => run('research')}>{working === 'research' ? 'Researching…' : 'Research now'}</button>
                 {lead.whatsapp && ['new', 'hold'].includes(lead.status || '') && <button type="button" className="primary" disabled={!!working} onClick={() => run('draft')}>{working === 'draft' ? 'Writing…' : 'Draft message'}</button>}</span></div>
             <p>{research || 'Nothing researched yet. “Research now” reads their website and public info.'}</p>
             {note && <small className="muted">{note}</small>}
+            {report && (
+              <details open style={{ marginTop: 8 }}>
+                <summary><b>What the AI scraper did</b>{report.at ? <small className="muted"> · {new Date(report.at).toLocaleString()}</small> : null}</summary>
+                {Object.keys(report.applied || {}).length > 0 && <p><b>Filled in:</b> {Object.entries(report.applied || {}).map(([k, v]) => `${k}: ${v}`).join(' · ')}</p>}
+                {Object.keys(report.found || {}).length > 0 && <p><b>Found:</b> {Object.entries(report.found || {}).filter(([k]) => k !== 'summary').map(([k, v]) => `${k}: ${Array.isArray(v) ? v.map((x: any) => (typeof x === 'string' ? x : x?.name || '')).filter(Boolean).join(', ') : String(v)}`).join(' · ')}</p>}
+                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{(report.steps || []).map((st, i) => <li key={i}><small>{st}</small></li>)}</ul>
+                <small className="muted">Only empty fields are filled; existing values are never overwritten. A phone found online is a lower-confidence number: check it before the first message.</small>
+              </details>
+            )}
           </div>
         )}
         {lead.firstMessage && <div className="panel2"><b>Message sent</b><p>{lead.firstMessage}</p></div>}

@@ -1,6 +1,7 @@
 """Lead lists and leads: CSV import with dedupe, filters, status changes, thread view, export. All queries are filtered by tenant_id."""
 from typing import Any
 import csv
+import json
 import io
 from datetime import datetime, timezone
 
@@ -41,8 +42,19 @@ def _out(l: Lead, insts: dict | None = None) -> dict:
         "address": l.address, "phoneRaw": l.phone_raw, "whatsapp": l.whatsapp, "country": l.country, "website": l.website, "email": l.email,
         "linkedin": l.linkedin, "facebook": l.facebook, "notes": l.notes, "status": l.status, "research": l.research,
         "firstMessage": l.first_message, "lastReply": l.last_reply, "createdAt": l.created_at.isoformat(),
-        "enriched": bool(l.enriched_at), "instanceId": l.instance_id, "sentAt": l.sent_at.isoformat() if l.sent_at else None, "followupStage": l.followup_stage,
+        "enriched": bool(l.enriched_at), "enrichment": _report(l), "instanceId": l.instance_id, "sentAt": l.sent_at.isoformat() if l.sent_at else None, "followupStage": l.followup_stage,
     }
+
+
+def _report(l: Lead) -> dict | None:
+    """The stored 'Improve data' report (steps, what was found, what was filled in); None if the lead was never improved."""
+    if not l.enrichment:
+        return None
+    try:
+        r = json.loads(l.enrichment)
+    except ValueError:
+        return None
+    return r if isinstance(r, dict) else None
 
 
 def _own(db: Session, ctx: TCtx, lead_id: str) -> Lead:
@@ -386,15 +398,32 @@ def enrich_many(body: dict | None = None, ctx: TCtx = Depends(need_role("operato
     if body.get("ids"):
         q = q.filter(Lead.id.in_([str(i) for i in body["ids"]][:2000]))
     elif body.get("all"):
-        q = q.filter(Lead.status.in_(("new", "verify", "hold", "no_whatsapp")), Lead.enriched_at.is_(None))
+        q = q.filter(Lead.status.in_(("new", "verify", "hold", "no_whatsapp")))
+        if not body.get("redo"):  # default: only leads that were never improved
+            q = q.filter(Lead.enriched_at.is_(None))
     else:
         raise HTTPException(422, "send ids or all=true")
     return {"queued": og.enqueue_enrich(ctx.tenant.id, [i for (i,) in q.limit(2000).all()])}
 
 
+@router.post("/leads/enrich/cancel")
+def enrich_cancel(ctx: TCtx = Depends(need_role("operator"))) -> Any:
+    """Stop the running 'Improve data' batch: queued leads are dropped, the one in progress finishes."""
+    return {"cancelled": og.cancel_enrich(ctx.tenant.id)}
+
+
 @router.get("/leads/enrich/status")
 def enrich_status(ctx: TCtx = Depends(need_role("viewer"))) -> Any:
     return og.enrich_status(ctx.tenant.id)
+
+
+@router.post("/leads/{lead_id}/improve")
+async def improve_now(lead_id: str, body: dict | None = None, ctx: TCtx = Depends(need_role("operator")), db: Session = Depends(get_db)) -> dict:
+    """AI scraper for ONE lead: finds the website, reads it, fills EMPTY fields (overwrite=true replaces existing ones)."""
+    from ..enrich import enrich_lead
+    l = _own(db, ctx, lead_id)
+    await enrich_lead(db, l, _profile(db, ctx.tenant.id), overwrite=bool((body or {}).get("overwrite")))
+    return _out(l)
 
 
 @router.post("/leads/{lead_id}/research")

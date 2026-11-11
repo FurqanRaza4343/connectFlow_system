@@ -667,6 +667,15 @@ def enqueue_enrich(tenant_id: str, ids: list[str]) -> int:
     return len(ids)
 
 
+def cancel_enrich(tenant_id: str) -> int:
+    """Drop the queued (not yet started) leads of this tenant's Improve batch; returns how many were dropped."""
+    dropped = int(rds.llen(f"og:enrichq:{tenant_id}"))
+    rds.delete(f"og:enrichq:{tenant_id}")
+    if dropped:
+        rds.hincrby(f"og:enrich:{tenant_id}", "total", -dropped)  # what was never started no longer counts
+    return dropped
+
+
 def enrich_status(tenant_id: str) -> dict:
     h = rds.hgetall(f"og:enrich:{tenant_id}")
     total, done = int(h.get("total", 0)), int(h.get("done", 0))

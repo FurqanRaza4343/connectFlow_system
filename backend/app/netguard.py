@@ -2,6 +2,7 @@
 import asyncio
 import ipaddress
 import socket
+import time
 from urllib.parse import urlparse
 
 from .config import settings
@@ -46,9 +47,15 @@ def _check_crawl_sync(url: str) -> None:
     host = u.hostname
     if "." not in host and not host.replace(":", "").isdigit():
         raise UnsafeUrl("internal host name")
-    try:
-        infos = socket.getaddrinfo(host, u.port or (443 if u.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
-    except socket.gaierror:
+    infos = None
+    for attempt in range(3):  # Docker's DNS forwarder drops lookups now and then: retry before calling a site dead
+        try:
+            infos = socket.getaddrinfo(host, u.port or (443 if u.scheme == "https" else 80), proto=socket.IPPROTO_TCP)
+            break
+        except socket.gaierror:
+            if attempt < 2:
+                time.sleep(0.6)
+    if not infos:
         raise UnsafeUrl("does not resolve")
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])

@@ -452,3 +452,119 @@ class AiUsageDaily(Base):
     tokens_out: Mapped[int] = mapped_column(BigInteger, default=0)
     tokens_cached: Mapped[int] = mapped_column(BigInteger, default=0)
     est_cost_micro_usd: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
+# ---------------------------------------------------------------- WhatsApp Status (24 h stories): see app/status_engine.py, docs/STATUS.md
+class StatusProfile(Base):
+    """Per workspace: brand kit, autopilot settings, the offers the AI may use, and the manual audience list."""
+
+    __tablename__ = "status_profiles"
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    instance_id: Mapped[str | None] = mapped_column(ForeignKey("instances.id", ondelete="SET NULL"), nullable=True)  # which number posts; null = the first ready one
+    auto: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")  # autopilot
+    times: Mapped[str] = mapped_column(String(40), default="11:00,19:00", server_default="11:00,19:00")  # local posting times (workspace timezone)
+    per_day: Mapped[int] = mapped_column(Integer, default=2, server_default="2")
+    approval: Mapped[str] = mapped_column(String(8), default="review", server_default="review")  # review | auto
+    image_style: Mapped[str] = mapped_column(String(8), default="card", server_default="card")  # card | ai | mixed
+    image_daily_cap: Mapped[int] = mapped_column(Integer, default=3, server_default="3")
+    image_monthly_cap: Mapped[int] = mapped_column(Integer, default=60, server_default="60")
+    language: Mapped[str] = mapped_column(String(12), default="English", server_default="English")  # English | Roman Urdu | Urdu
+    footer: Mapped[str] = mapped_column(String(160), default="", server_default="")
+    accent: Mapped[str] = mapped_column(String(7), default="", server_default="")
+    dark: Mapped[str] = mapped_column(String(7), default="", server_default="")
+    ink: Mapped[str] = mapped_column(String(7), default="", server_default="")
+    button_text: Mapped[str] = mapped_column(String(40), default="Message us", server_default="Message us")
+    button_link: Mapped[str] = mapped_column(String(300), default="", server_default="")  # '' | 'wa' | https://...
+    wa_number: Mapped[str] = mapped_column(String(20), default="", server_default="")  # digits for the wa.me link ('' = the number that posts)
+    wa_text: Mapped[str] = mapped_column(String(120), default="Hi, I saw your status", server_default="Hi, I saw your status")
+    templates: Mapped[str] = mapped_column(String(120), default="gradient,band,split,badge,minimal,bold,frame,diagonal", server_default="gradient,band,split,badge,minimal,bold,frame,diagonal")
+    offers: Mapped[str] = mapped_column(Text, default="", server_default="")  # the ONLY discounts the AI may state
+    recipients: Mapped[str] = mapped_column(Text, default="", server_default="")  # extra audience numbers (digits, comma separated)
+
+
+class StatusCampaign(Base):
+    """A planned series of Status posts (e.g. 14 days, one every 12 hours): brief -> AI plan -> AI writes -> operator approves."""
+
+    __tablename__ = "status_campaigns"
+    __table_args__ = (Index("ix_status_campaigns_tenant", "tenant_id", "state"), Index("ix_status_campaigns_state", "state"))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(String(80), default="")
+    brief: Mapped[str] = mapped_column(Text, default="")
+    goal: Mapped[str] = mapped_column(String(12), default="awareness")
+    days: Mapped[int] = mapped_column(Integer, default=7)
+    interval_hours: Mapped[int] = mapped_column(Integer, default=0)  # 6 | 8 | 12 | 24, or 0 = use per_day
+    per_day: Mapped[int] = mapped_column(Integer, default=1)
+    window_from: Mapped[str] = mapped_column(String(5), default="10:00")
+    window_to: Mapped[str] = mapped_column(String(5), default="21:00")
+    start_date: Mapped[str] = mapped_column(String(10), default="")  # local YYYY-MM-DD of day 1
+    language: Mapped[str] = mapped_column(String(12), default="English")
+    style: Mapped[str] = mapped_column(String(8), default="card")
+    # planning | asking | planned | generating | review | running | paused | done | cancelled | failed. The WORKER does the AI steps.
+    state: Mapped[str] = mapped_column(String(12), default="planning")
+    questions: Mapped[list] = mapped_column(JSON, default=list)
+    answers: Mapped[dict] = mapped_column(JSON, default=dict)
+    plan: Mapped[dict] = mapped_column(JSON, default=dict)  # {"slots": [{n, day, date, time, at, theme, angle}]}
+    summary: Mapped[str] = mapped_column(Text, default="")
+    error: Mapped[str] = mapped_column(String(300), default="")
+    total: Mapped[int] = mapped_column(Integer, default=0)
+    generated: Mapped[int] = mapped_column(Integer, default=0)
+    busy_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # a worker is on it (stale after a few minutes)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StatusPost(Base):
+    """One Status. Images live in the storage backend (keys), never in the database."""
+
+    __tablename__ = "status_posts"
+    __table_args__ = (Index("ix_status_posts_tenant_state", "tenant_id", "state"), Index("ix_status_posts_due", "state", "scheduled_at"), Index("ix_status_posts_campaign", "campaign_id"))
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_id)
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"))
+    campaign_id: Mapped[str | None] = mapped_column(ForeignKey("status_campaigns.id", ondelete="SET NULL"), nullable=True)
+    mode: Mapped[str] = mapped_column(String(10), default="own")  # ai | prompt | own | auto | campaign
+    kind: Mapped[str] = mapped_column(String(6), default="image")  # image | text
+    state: Mapped[str] = mapped_column(String(10), default="draft")  # draft | scheduled | posting | posted | failed | cancelled
+    template: Mapped[str] = mapped_column(String(12), default="gradient")
+    headline: Mapped[str] = mapped_column(String(120), default="")
+    sub: Mapped[str] = mapped_column(String(160), default="")
+    badge: Mapped[str] = mapped_column(String(14), default="")
+    cta: Mapped[str] = mapped_column(String(40), default="")
+    caption: Mapped[str] = mapped_column(Text, default="")
+    link: Mapped[str] = mapped_column(String(200), default="")  # contact line shown on the picture and in the caption
+    btn_link: Mapped[str] = mapped_column(String(300), default="")  # '' | 'wa' | https://... (goes into the caption: the only tappable part)
+    prompt: Mapped[str] = mapped_column(String(800), default="")
+    image_prompt: Mapped[str] = mapped_column(String(300), default="")
+    accent: Mapped[str] = mapped_column(String(7), default="")
+    dark: Mapped[str] = mapped_column(String(7), default="")
+    ink: Mapped[str] = mapped_column(String(7), default="")
+    overlay: Mapped[int] = mapped_column(Integer, default=48)
+    pos: Mapped[str] = mapped_column(String(6), default="center")
+    plain: Mapped[bool] = mapped_column(Boolean, default=False)
+    bg_key: Mapped[str] = mapped_column(String(120), default="")  # AI or uploaded background (storage key)
+    bg_is_upload: Mapped[bool] = mapped_column(Boolean, default=False)
+    image_key: Mapped[str] = mapped_column(String(120), default="")  # the final PNG (storage key)
+    instance_id: Mapped[str | None] = mapped_column(ForeignKey("instances.id", ondelete="SET NULL"), nullable=True)
+    scheduled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # set when a sender moved it to 'posting' (a stale one is failed, never re-sent)
+    posted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    wa_status_id: Mapped[str] = mapped_column(String(120), default="")
+    error: Mapped[str] = mapped_column(String(300), default="")
+    tries: Mapped[int] = mapped_column(Integer, default=0)
+    auto: Mapped[bool] = mapped_column(Boolean, default=False)
+    plan_theme: Mapped[str] = mapped_column(String(12), default="")
+    plan_day: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+
+class StatusUsageDaily(Base):
+    """Per workspace per local day: AI pictures made, idea calls, posts that went out, estimated picture cost (micro-USD, 0 = unknown)."""
+
+    __tablename__ = "status_usage_daily"
+    tenant_id: Mapped[str] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    images: Mapped[int] = mapped_column(Integer, default=0)
+    copies: Mapped[int] = mapped_column(Integer, default=0)
+    posted: Mapped[int] = mapped_column(Integer, default=0)
+    cost_micro: Mapped[int] = mapped_column(BigInteger, default=0)

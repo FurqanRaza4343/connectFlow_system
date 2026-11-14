@@ -12,7 +12,7 @@ from . import storage
 from .config import settings
 from .db import SessionLocal
 from .locks import leader
-from .models import Asset, AssetVariant
+from .models import Asset, AssetVariant, StatusPost
 
 log = logging.getLogger("assets")
 MIN_AGE = 3600
@@ -29,6 +29,8 @@ async def sweep_once(db: Session) -> dict[str, int]:
         for key, thumb in db.query(Asset.storage_key, Asset.thumb_key).filter(Asset.storage_backend == "local").all():
             known.update(k for k in (key, thumb) if k)
         known.update(k for (k,) in db.query(AssetVariant.storage_key).filter(AssetVariant.storage_backend == "local").all() if k)
+        for img, bg in db.query(StatusPost.image_key, StatusPost.bg_key).filter((StatusPost.image_key != "") | (StatusPost.bg_key != "")).all():
+            known.update(k for k in (img, bg) if k)   # WhatsApp Status pictures live in the same storage but are not library assets
         orphans = await storage.get_storage("local").sweep_orphans(known, MIN_AGE)
     return {"reservations": int(stale), "variantReservations": int(stale_v), "orphanFiles": orphans}
 

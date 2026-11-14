@@ -1,6 +1,8 @@
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1
 WORKDIR /srv
+# fonts for the WhatsApp Status cards: DejaVu (Latin) and Noto (Urdu / Arabic script)
+RUN apt-get update && apt-get install -y --no-install-recommends fontconfig fonts-dejavu-core fonts-noto-core && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 COPY alembic.ini .

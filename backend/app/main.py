@@ -3,7 +3,8 @@ import asyncio
 import time
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import inspect, text
@@ -13,8 +14,9 @@ from .config import settings
 from .db import SessionLocal, engine
 from .locks import ADV_STARTUP, advisory_lock, advisory_unlock
 from .models import Membership, Plan, Tenant, User
-from .routers import account, assets, twofactor, admin, admin_ext, admin_ops, admin_security, auth, billing, branding, google, instances, internal, drafts, keys, leads, outreach, team, v1, webhooks
+from .routers import account, assets, twofactor, admin, admin_ext, admin_ops, admin_security, auth, billing, branding, google, instances, internal, drafts, keys, leads, outreach, status, team, v1, webhooks
 from .security import hash_password
+from .status_engine import StatusError
 from .telemetry import sweeper, v1_guard
 from .tools.reencrypt import backfill
 
@@ -39,6 +41,13 @@ app.include_router(leads.router)
 app.include_router(drafts.router)
 app.include_router(outreach.router)
 app.include_router(assets.router)
+app.include_router(status.router)
+
+@app.exception_handler(StatusError)
+async def _status_error(_: Request, e: StatusError) -> JSONResponse:
+    """WhatsApp Status problems the operator can read (plan limit, no number, bad link...)."""
+    return JSONResponse(status_code=e.status, content={"detail": str(e)})
+
 
 app.middleware("http")(v1_guard)  # pre-auth per-IP limiter + 401-storm block for /v1
 app.middleware("http")(abuse.trial_guard)  # Trial workspaces: at most 3 new WhatsApp sessions per hour

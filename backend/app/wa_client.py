@@ -125,6 +125,32 @@ async def send_media(sid: str, chat_id: str, kind: str, *, data: bytes, mimetype
     return await _call("POST", f"/sessions/{sid}/messages/{MEDIA_ENDPOINT[kind]}", body, timeout=MEDIA_TIMEOUT)
 
 
+# ---- WhatsApp Status (24-hour stories). OpenWA: POST /sessions/:id/status/send-text | send-image, DELETE /sessions/:id/status/:statusId.
+# The Baileys engine posts to EXACTLY the `recipients` list (jids, at most 256) and refuses a post without one.
+async def send_status_text(sid: str, text: str, *, background_color: str = "", recipients: list[str] | None = None) -> dict:
+    body: dict[str, Any] = {"text": text[:4096]}
+    if background_color:
+        body["backgroundColor"] = background_color
+    if recipients:
+        body["recipients"] = recipients[:256]
+    return await _call("POST", f"/sessions/{sid}/status/send-text", body)
+
+
+async def send_status_image(sid: str, data: bytes, *, caption: str = "", mimetype: str = "image/png", recipients: list[str] | None = None) -> dict:
+    if len(data) > MAX_MEDIA_BYTES:
+        raise WAError(413, "The picture is too large to post")
+    body: dict[str, Any] = {"image": {"base64": base64.b64encode(data).decode(), "mimetype": mimetype}}
+    if caption:
+        body["caption"] = caption[:1024]
+    if recipients:
+        body["recipients"] = recipients[:256]
+    return await _call("POST", f"/sessions/{sid}/status/send-image", body, timeout=MEDIA_TIMEOUT)
+
+
+async def delete_status(sid: str, status_id: str) -> None:
+    await _call("DELETE", f"/sessions/{sid}/status/{status_id}")
+
+
 async def list_sessions() -> list[dict]:
     """All sessions on the gateway node: [{id, name, status, ...}]."""
     res = await _call("GET", "/sessions")

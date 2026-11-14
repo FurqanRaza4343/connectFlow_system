@@ -193,9 +193,10 @@ async def main() -> None:
     from .outreach_worker import run as outreach_run  # imported here: the API image does not need it at import time
     from .assets_sweep import assets_loop
     from .reaper import reaper_loop
+    from .status_worker import campaign_loop, status_loop
     from .retention import retention_loop
 
-    loops = [("webhooks", webhook_loop), ("outreach", outreach_run), ("reaper", reaper_loop), ("retention", retention_loop), ("heartbeat", heartbeat_loop), ("billing", billing_loop), ("assets", assets_loop)]
+    loops = [("webhooks", webhook_loop), ("outreach", outreach_run), ("reaper", reaper_loop), ("retention", retention_loop), ("heartbeat", heartbeat_loop), ("billing", billing_loop), ("status", status_loop), ("campaigns", campaign_loop), ("assets", assets_loop)]
     await asyncio.gather(*(_supervise(name, fn) for name, fn in loops))
 
 

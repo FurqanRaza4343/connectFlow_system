@@ -10,6 +10,7 @@ import { Billing } from './pages/Billing';
 import { Settings } from './pages/Settings';
 import { Outreach, OUTREACH_TABS, OutreachTab } from './pages/Outreach';
 import { Overview } from './pages/Overview';
+import { Status } from './pages/Status';
 import { Bell } from './components/Bell';
 import { TokenFlow, tokenFromUrl } from './pages/TokenFlow';
 import { Logo } from './components/Logo';
@@ -17,11 +18,12 @@ import { PlanPrompt, rememberPlanFromUrl } from './components/PlanPrompt';
 
 rememberPlanFromUrl(); // pricing page links arrive as /?plan=starter#signup; Login strips the query, so capture it first
 
-type Tab = 'overview' | 'numbers' | 'outreach' | 'api' | 'webhooks' | 'team' | 'billing' | 'settings';
+type Tab = 'overview' | 'numbers' | 'outreach' | 'status' | 'api' | 'webhooks' | 'team' | 'billing' | 'settings';
 const NAV: Array<{ id: Tab; label: string; icon: string; adminOnly?: boolean }> = [
   { id: 'overview', label: 'Overview', icon: 'M3 12l9-8 9 8M5 10v10h14V10' },
   { id: 'numbers', label: 'WhatsApp numbers', icon: 'M7 2h10a2 2 0 012 2v16a2 2 0 01-2 2H7a2 2 0 01-2-2V4a2 2 0 012-2zm5 17.5a1 1 0 100-2 1 1 0 000 2z' },
   { id: 'outreach', label: 'Outreach', icon: 'M4 5h16M4 12h16M4 19h10M18 17l2 2 3-4' },
+  { id: 'status', label: 'WhatsApp Status', icon: 'M12 3a9 9 0 109 9M16.5 3.6a9 9 0 011.9 1.9M20.4 7.6a9 9 0 01.6 2M12 8v4l2.5 1.5' },
   { id: 'api', label: 'API & usage', icon: 'M8 8l-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14' },
   { id: 'webhooks', label: 'Webhooks', icon: 'M10 13a5 5 0 007.07 0l2.83-2.83a5 5 0 00-7.07-7.07l-1.4 1.4M14 11a5 5 0 00-7.07 0L4.1 13.83a5 5 0 007.07 7.07l1.4-1.4', adminOnly: true },
   { id: 'team', label: 'Team', icon: 'M9 11a3.5 3.5 0 100-7 3.5 3.5 0 000 7zM2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6M17 11a3 3 0 100-6M18.5 14.4c2 .6 3.5 2.4 3.5 5.6', adminOnly: true },
@@ -98,6 +100,7 @@ export function App() {
           {tab === 'overview' && t && <Overview me={me} go={goHash} />}
           {tab === 'numbers' && t && <Numbers me={me} />}
           {tab === 'outreach' && t && <Outreach me={me} sub={route.sub} onSub={(x) => goHash(`outreach/${x}`)} go={goHash} />}
+          {tab === 'status' && t && <Status me={me} go={goHash} />}
           {tab === 'api' && t && <ApiPage me={me} />}
           {tab === 'webhooks' && t && isAdmin && <Webhooks />}
           {tab === 'team' && t && isAdmin && <Team me={me} />}

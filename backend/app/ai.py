@@ -510,13 +510,14 @@ SLOTS_JSON: {json.dumps([{"n": s["n"], "day": s["day"], "time": s["time"]} for s
 
 Return JSON, either {{"questions":[{{"id":"q1","question":"","options":[""]}}]}} or {{"summary":"2 short sentences on the strategy","roadmap":[{{"n":1,"theme":"tip|service|proof|offer|greeting|cta","angle":"one sentence: what this post says"}}]}} with exactly {len(slots)} roadmap entries, one per slot n."""
     out = parse_json(await chat(system, user, json_mode=True, max_tokens=12000, grow=True))
-    if not answers and isinstance(out.get("questions"), list) and out["questions"]:
+    raw_qs: list[Any] = out.get("questions") if isinstance(out.get("questions"), list) else []
+    if not answers and raw_qs:
         qs = [{"id": str(q.get("id") or f"q{i + 1}"), "question": _clean_line(q.get("question"), 300), "options": [_clean_line(o, 120) for o in (q.get("options") or [])[:4]]}
-              for i, q in enumerate(out["questions"][:3]) if isinstance(q, dict)]
+              for i, q in enumerate(raw_qs[:3]) if isinstance(q, dict)]
         qs = [q for q in qs if q["question"]]
         if qs:
             return {"questions": qs}
-    road = out.get("roadmap") if isinstance(out.get("roadmap"), list) else []
+    road: list[Any] = out.get("roadmap") if isinstance(out.get("roadmap"), list) else []
     by_n = {int(r["n"]): r for r in road if isinstance(r, dict) and str(r.get("n", "")).lstrip("-").isdigit()}
     result = []
     for i, sl in enumerate(slots):

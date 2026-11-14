@@ -543,7 +543,7 @@ async def post_now(db: Session, tenant_id: str, post_id: str, *, manual: bool) -
         else:
             text = "\n\n".join(x for x in (s.headline, s.sub, caption, s.cta if s.cta and s.cta not in caption else "") if x)[:4000]
             data = await wa_client.send_status_text(inst.openwa_id, text, background_color=s.accent or p.accent or tenant.brand_color or "#004ECB", recipients=recipients)  # type: ignore[union-attr]
-        d = data.get("data") if isinstance(data.get("data"), dict) else data
+        d: dict[str, Any] = data.get("data") if isinstance(data.get("data"), dict) else data
         now = datetime.now(timezone.utc)
         s.state, s.posted_at, s.error = "posted", now, ""
         s.wa_status_id = str(d.get("statusId") or d.get("id") or "")[:120]

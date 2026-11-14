@@ -85,7 +85,7 @@ def campaign_out(db: Session, c: StatusCampaign) -> dict[str, Any]:
     per_day: dict[str, int] = {}
     for s in slots:
         per_day[s["date"]] = per_day.get(s["date"], 0) + 1
-    counts = dict(db.query(StatusPost.state, func.count(StatusPost.id)).filter(StatusPost.campaign_id == c.id).group_by(StatusPost.state).all())
+    counts: dict[str, int] = {str(k): int(v) for k, v in db.query(StatusPost.state, func.count(StatusPost.id)).filter(StatusPost.campaign_id == c.id).group_by(StatusPost.state).all()}
     return {
         "id": c.id, "name": c.name, "brief": c.brief, "goal": c.goal, "days": c.days, "intervalHours": c.interval_hours, "perDay": c.per_day, "windowFrom": c.window_from,
         "windowTo": c.window_to, "startDate": c.start_date, "language": c.language, "style": c.style, "state": c.state, "questions": c.questions or [], "summary": c.summary,
@@ -385,14 +385,14 @@ def calendar(db: Session, tenant_id: str, month: str) -> dict[str, Any]:
                                        ((StatusPost.scheduled_at >= lo) & (StatusPost.scheduled_at <= hi)) | ((StatusPost.posted_at >= lo) & (StatusPost.posted_at <= hi))).all()
     items = [{"id": s.id, "state": s.state, "at": eng.iso(_when(s)), "date": eng.local_date(_when(s), tz).isoformat(), "headline": s.headline,
               "theme": s.plan_theme or ("auto" if s.auto else "manual"), "campaignId": s.campaign_id, "hasImage": bool(s.image_key), "error": s.error} for s in rows]
-    return {"month": month, "items": sorted([i for i in items if i["date"].startswith(month)], key=lambda i: i["at"] or "")}
+    return {"month": month, "items": sorted([i for i in items if str(i["date"]).startswith(month)], key=lambda i: str(i["at"] or ""))}
 
 
 def stats(db: Session, tenant_id: str, back: int = 10, ahead: int = 14) -> dict[str, Any]:
     tz = eng.tz_of(db, tenant_id)
     today = eng.local_date(datetime.now(timezone.utc), tz)
     days = [(today + timedelta(days=i)).isoformat() for i in range(-back, ahead + 1)]
-    series = {d: {"day": d, "posted": 0, "planned": 0, "failed": 0} for d in days}
+    series: dict[str, dict[str, Any]] = {d: {"day": d, "posted": 0, "planned": 0, "failed": 0} for d in days}
     themes: dict[str, int] = {}
     for s in db.query(StatusPost).filter(StatusPost.tenant_id == tenant_id, StatusPost.state != "cancelled").all():
         d = eng.local_date(_when(s), tz).isoformat()
@@ -400,6 +400,6 @@ def stats(db: Session, tenant_id: str, back: int = 10, ahead: int = 14) -> dict[
             series[d]["posted" if s.state == "posted" else "failed" if s.state == "failed" else "planned"] += 1
         th = s.plan_theme or ("auto" if s.auto else "manual")
         themes[th] = themes.get(th, 0) + 1
-    states = dict(db.query(StatusPost.state, func.count(StatusPost.id)).filter(StatusPost.tenant_id == tenant_id).group_by(StatusPost.state).all())
+    states: dict[str, int] = {str(k): int(v) for k, v in db.query(StatusPost.state, func.count(StatusPost.id)).filter(StatusPost.tenant_id == tenant_id).group_by(StatusPost.state).all()}
     nxt = db.query(func.min(StatusPost.scheduled_at)).filter(StatusPost.tenant_id == tenant_id, StatusPost.state == "scheduled", StatusPost.scheduled_at > datetime.now(timezone.utc)).scalar()
     return {"today": today.isoformat(), "series": [series[d] for d in days], "themes": themes, "states": states, "nextAt": eng.iso(nxt), "usage": eng.usage_out(db, tenant_id)}

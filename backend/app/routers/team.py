@@ -130,6 +130,8 @@ def preview(token: str, db: Session = Depends(get_db)) -> dict[str, Any]:
 
 @router.post("/invites/accept")
 def accept(body: AcceptIn, response: Response, db: Session = Depends(get_db), _: None = Depends(csrf_guard)) -> Any:
+    if not settings.legacy_login_enabled:
+        raise HTTPException(404, "Open the invitation link and sign in with the invited email address.")
     i = _live_invite(db, body.token)
     user = db.query(User).filter(User.email == i.email).first()
     if user:

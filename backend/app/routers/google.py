@@ -44,7 +44,7 @@ def _back(error: str | None = None, mode: str = "login") -> RedirectResponse:
 
 @router.get("/start")
 def start(request: Request, mode: str = "login") -> Any:
-    if not (settings.google_client_id and settings.google_client_secret):
+    if not (settings.google_client_id and settings.google_client_secret) or not settings.legacy_login_enabled:
         return _back("Google sign-in is not configured yet.", mode)
     _throttle(f"gstart:{_client_ip(request)}", 30, 600)
     state, nonce = secrets.token_urlsafe(24), secrets.token_urlsafe(24)

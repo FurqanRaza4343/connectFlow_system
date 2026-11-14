@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     internal_webhook_url: str = "http://backend:8000/internal/wa-webhook"
 
     # Google sign-in (OAuth 2.0 authorization-code flow). Leave empty to disable the button.
+    # Clerk sign-in (identity only: workspaces, roles and plans stay in our database). Publishable key = public; secret key is only used to read the verified email.
+    clerk_publishable_key: str = ""
+    clerk_secret_key: str = ""
+    clerk_authorized_parties: str = ""  # comma list of allowed token origins (azp); empty = not checked
+    legacy_login_enabled: bool = True  # email+password / Google / invite-with-password. Turn off in production once Clerk is the only door
     google_client_id: str = ""
     google_client_secret: str = ""
     public_app_url: str = "http://app.connectflow.localhost:8080"  # where users reach the app (used for the OAuth redirect URI)

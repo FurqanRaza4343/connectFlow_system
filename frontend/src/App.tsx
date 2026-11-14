@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, Me } from './api';
 import { applyTheme } from './theme';
 import { Login } from './pages/Login';
+import { AuthGate } from './components/AuthGate';
+import { clerkSignOut } from './clerk';
 import { Numbers } from './pages/Numbers';
 import { ApiPage } from './pages/ApiPage';
 import { Webhooks } from './pages/Webhooks';
@@ -49,14 +51,15 @@ export function App() {
   const goHash = (h: string) => { setMenu(false); if (location.hash === `#${h}`) setRoute(parse()); else location.hash = h; };
   const go = (t: Tab) => goHash(t);
 
+  if (flow?.kind === 'invite' && me === null) return <AuthGate invite={flow.token} onDone={setMe} fallback={<TokenFlow flow={flow} me={me} onDone={(m) => { history.replaceState(null, '', location.pathname); if (m) setMe(m); location.reload(); }} />} />;
   if (flow && me !== undefined) return <TokenFlow flow={flow} me={me} onDone={(m) => { history.replaceState(null, '', location.pathname); if (m) setMe(m); location.reload(); }} />;
   if (me === undefined) return <div className="center muted">Loading…</div>;
-  if (me === null) return <Login onDone={setMe} />;
+  if (me === null) return <AuthGate onDone={setMe} fallback={<Login onDone={setMe} />} />;
 
   const t = me.tenant;
   const isAdmin = ['owner', 'admin'].includes(me.role);
   const items = NAV.filter((n) => (!n.adminOnly || isAdmin));
-  const logout = async () => { await api('/api/auth/logout', 'POST'); setMe(null); };
+  const logout = async () => { await api('/api/auth/logout', 'POST'); await clerkSignOut(); setMe(null); };
   const resend = async () => { try { await api('/api/auth/resend-verification', 'POST'); setNotice('Confirmation email sent. Check your inbox.'); } catch (e: any) { setNotice(e.message); } };
 
   return (

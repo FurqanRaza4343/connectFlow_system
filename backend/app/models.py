@@ -63,6 +63,7 @@ class User(Base):
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     google_sub: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    clerk_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
     avatar_url: Mapped[str] = mapped_column(String(500), default="")
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)  # enc1:... (app/crypto.py); pending enrolment while totp_enabled_at is null
     totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

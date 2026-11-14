@@ -1,3 +1,5 @@
+import { AuthGate } from '../components/AuthGate';
+import { clerkSignOut } from '../clerk';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api } from '../api';
 import { Overview } from './Overview';
@@ -66,10 +68,10 @@ export function AdminApp() {
   useEffect(() => { if (me?.user.isPlatformAdmin) refreshPending(); }, [me, refreshPending]);
 
   const go = (p: string, id?: string) => { location.hash = id ? `${p}/${id}` : p; };
-  const logout = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); setMe(null); };
+  const logout = async () => { await api('/api/auth/logout', 'POST').catch(() => {}); await clerkSignOut(); setMe(null); };
 
   if (me === undefined) return <div className="ad-root"><div className="ad-load" style={{ paddingTop: 80 }}>Loading…</div></div>;
-  if (me === null) return <div className="ad-root"><Login onDone={load} /></div>;
+  if (me === null) return <div className="ad-root"><AuthGate admin onDone={() => load()} fallback={<Login onDone={load} />} /></div>;
   if (!me.user.isPlatformAdmin) return (
     <div className="ad-root"><div className="ad-login"><div className="ad-box"><Brand /><h1>Not allowed</h1><p className="ad-muted" style={{ margin: 0 }}>This account is not a platform admin.</p><div className="ad-row"><button className="ad-btn pri" onClick={logout}>Sign out</button></div></div></div></div>
   );

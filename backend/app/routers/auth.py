@@ -13,8 +13,9 @@ from ..deps import Ctx, csrf_guard, current_ctx, rds
 from datetime import datetime, timezone
 
 from ..mailer import layout, send_email
-from ..models import AuditLog, Membership, Tenant, User
-from .. import abuse, mfa, tokens
+from ..models import AuditLog, Invite, Membership, Tenant, User
+from .. import abuse, clerk_auth, mfa, tokens
+from ..tokens import digest
 from ..security import COOKIE, DUMMY_HASH, hash_password, make_token, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -68,11 +69,86 @@ def _me(ctx: Ctx) -> dict:
 @router.get("/config")
 def auth_config() -> dict[str, Any]:
     """Public: which sign-in methods the login page may offer."""
-    return {"google": bool(settings.google_client_id and settings.google_client_secret), "turnstileSiteKey": settings.turnstile_site_key if abuse.turnstile_enabled() else ""}
+    return {"google": bool(settings.google_client_id and settings.google_client_secret) and settings.legacy_login_enabled,
+            "turnstileSiteKey": settings.turnstile_site_key if abuse.turnstile_enabled() else "",
+            "clerkPublishableKey": settings.clerk_publishable_key if clerk_auth.enabled() else "", "legacyLogin": settings.legacy_login_enabled}
+
+
+def legacy_only() -> None:
+    """Password / Google sign-in is switched off in production once Clerk is the only door (LEGACY_LOGIN_ENABLED=false)."""
+    if not settings.legacy_login_enabled:
+        raise HTTPException(404, "Password sign-in is turned off. Use the sign-in page.")
+
+
+class ClerkIn(BaseModel):
+    company: str = Field(default="", max_length=120)  # workspace name for a brand-new account
+    invite: str = Field(default="", max_length=200)   # invitation token from the e-mailed link
+
+
+@router.post("/clerk")
+async def clerk_exchange(body: ClerkIn, request: Request, response: Response, db: Session = Depends(get_db), _: None = Depends(csrf_guard)) -> dict[str, Any]:
+    """Trade a Clerk session token (Authorization: Bearer) for our own session cookie. Finds the user by Clerk id, else by Clerk-VERIFIED
+    email (linking an existing account is safe because Clerk proved the address), else joins via a live invitation, else creates a trial workspace."""
+    ip = _client_ip(request)
+    _throttle(f"clerk-ip:{ip}", 60, 600)
+    head = request.headers.get("authorization", "")
+    if not head.lower().startswith("bearer "):
+        raise HTTPException(401, "login required")
+    claims = await asyncio.to_thread(clerk_auth.verify_token, head[7:].strip())
+    cid = str(claims["sub"])
+    user = db.query(User).filter(User.clerk_user_id == cid).first()
+    ident = await clerk_auth.fetch_identity(cid)
+    email: str = ident["email"]
+    created = False
+    if not user:
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            if user.clerk_user_id and user.clerk_user_id != cid:
+                raise HTTPException(409, "This email is already linked to another sign-in account.")
+            user.clerk_user_id = cid
+            db.add(AuditLog(user_id=user.id, action="link.clerk", detail=email))
+    if user and user.is_platform_admin and mfa.admin_2fa_required():  # platform admins need a second factor: Clerk reports it in the "fva" claim
+        fva = claims.get("fva")
+        if not (isinstance(fva, list) and len(fva) > 1 and isinstance(fva[1], int) and fva[1] >= 0):
+            raise HTTPException(403, "Platform admins must turn on two-step verification in their account settings first.")
+    if not user:
+        abuse.check_email_allowed(email)
+        user = User(email=email, name=ident["name"], clerk_user_id=cid, avatar_url=ident["avatar"], email_verified_at=datetime.now(timezone.utc),
+                    password_hash=hash_password(__import__("secrets").token_urlsafe(32)))  # random: password sign-in stays impossible
+        db.add(user)
+        db.flush()
+        created = True
+    user.email_verified_at = user.email_verified_at or datetime.now(timezone.utc)  # Clerk verified it
+    if not user.name and ident["name"]:
+        user.name = ident["name"]
+    if not user.avatar_url and ident["avatar"]:
+        user.avatar_url = ident["avatar"]
+    if not db.query(Membership).filter(Membership.user_id == user.id).first():
+        now = datetime.now(timezone.utc)
+        inv = None
+        if body.invite:
+            inv = db.query(Invite).filter(Invite.token_hash == digest(body.invite)).first()
+            if not inv or inv.accepted_at or inv.expires_at < now or inv.email != email:
+                raise HTTPException(410, "This invitation is invalid, expired, or was sent to a different email address.")
+        else:
+            inv = db.query(Invite).filter(Invite.email == email, Invite.accepted_at.is_(None), Invite.expires_at > now).order_by(Invite.created_at.desc()).first()
+        if inv:
+            db.add(Membership(user_id=user.id, tenant_id=inv.tenant_id, role=inv.role))
+            inv.accepted_at = now
+            db.add(AuditLog(tenant_id=inv.tenant_id, user_id=user.id, action="team.join", detail=email))
+        else:
+            label = body.company.strip() or (f"{ident['name'] or email.split('@')[0]}'s workspace")
+            t = Tenant(name=label[:120], plan_id="trial")
+            db.add(t)
+            db.flush()
+            db.add(Membership(user_id=user.id, tenant_id=t.id, role="owner"))
+            db.add(AuditLog(tenant_id=t.id, user_id=user.id, action="signup.clerk", detail=email))
+    db.commit()
+    return finish_login(db, user, request, response) | {"created": created}
 
 
 @router.post("/signup")
-async def signup(body: SignupIn, request: Request, response: Response, db: Session = Depends(get_db), _: None = Depends(csrf_guard)) -> dict[str, Any]:
+async def signup(body: SignupIn, request: Request, response: Response, db: Session = Depends(get_db), _: None = Depends(csrf_guard), __: None = Depends(legacy_only)) -> dict[str, Any]:
     ip = _client_ip(request)
     _throttle(f"signup:{ip}", 10, 3600)
     await asyncio.to_thread(abuse.verify_turnstile, body.captcha, ip)
@@ -110,7 +186,7 @@ def finish_login(db: Session, user: User, request: Request, response: Response, 
 
 
 @router.post("/login")
-def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db), _: None = Depends(csrf_guard)) -> dict[str, Any]:
+def login(body: LoginIn, request: Request, response: Response, db: Session = Depends(get_db), _: None = Depends(csrf_guard), __: None = Depends(legacy_only)) -> dict[str, Any]:
     email = body.email.lower()
     ip = _client_ip(request)
     # limit per IP and per account, so neither one attacker nor a botnet can brute-force a password
@@ -193,7 +269,7 @@ async def resend(ctx: Ctx = Depends(current_ctx), db: Session = Depends(get_db))
 
 
 @router.post("/forgot")
-async def forgot(body: EmailIn, request: Request, db: Session = Depends(get_db), _: None = Depends(csrf_guard)) -> dict[str, Any]:
+async def forgot(body: EmailIn, request: Request, db: Session = Depends(get_db), _: None = Depends(csrf_guard), __: None = Depends(legacy_only)) -> dict[str, Any]:
     ip = _client_ip(request)
     _throttle(f"forgot-ip:{ip}", 10, 3600)
     await asyncio.to_thread(abuse.verify_turnstile, body.captcha, ip)
@@ -208,7 +284,7 @@ async def forgot(body: EmailIn, request: Request, db: Session = Depends(get_db),
 
 
 @router.post("/reset")
-def reset(body: ResetIn, db: Session = Depends(get_db), _: None = Depends(csrf_guard)) -> dict[str, Any]:
+def reset(body: ResetIn, db: Session = Depends(get_db), _: None = Depends(csrf_guard), __: None = Depends(legacy_only)) -> dict[str, Any]:
     uid = tokens.consume(db, body.token, "reset")
     user = db.get(User, uid) if uid else None
     if not user:

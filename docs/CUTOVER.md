@@ -11,3 +11,18 @@ Do this only after: One Group number linked in the `deonegroup.com` workspace (Q
 5. After 30 days: copy the archive off-machine, then delete `legacy/` yourself.
 
 `legacy/` is git-ignored and never pushed.
+
+## Data import from the old dashboard (before you retire it)
+
+The importer moves the leads, lists, conversation log and open drafts, **and now also the settings, the company knowledge document, the operator's extra style rules and the branding** into the `deonegroup.com` workspace. It never moves the WhatsApp session (relink the number by QR), and it never copies the legacy "live" switches: the workspace always starts with `auto_run = false` and `dry_run = true`.
+
+```bash
+cd infra
+# 1. dry run (writes nothing); the old orchestrator may keep running, the file is opened read-only
+docker compose run --rm --no-deps -v "$PWD/../legacy:/legacy:ro" api python -m app.tools.migrate_legacy   --state /legacy/orchestrator/state/state.sqlite --knowledge /legacy/data/company_knowledge.md   --tenant "deonegroup.com" --company-name "One Group" --website "https://deonegroup.com" --backfill
+# 2. the same command with --apply
+```
+- `--backfill` also fills empty fields (country, enrichment, rating note) of leads imported by an older version of this tool.
+- Safe to run again: nothing is duplicated.
+- Printed at the end: what was **not** migrated (admin WhatsApp notification numbers, notifications, batches history, sent/discarded drafts, the Status test posts).
+- Take a database backup first (`make backup` or `pg_dump -Fc`). Tests: `python backend/tests/run_e2e.py migrate_legacy` and `backend/tests/test_migrate_legacy_units.py`.

@@ -42,6 +42,9 @@ class Tenant(Base):
     deletion_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # owner asked to delete the workspace; an admin acts manually
     website_url: Mapped[str] = mapped_column(String(300), default="", server_default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # NULL = no expiry (workspaces from before the 14-day trial)
+    onboarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # NULL = the first-run wizard has not been finished or skipped
+    trial_reminder: Mapped[str] = mapped_column(String(8), default="", server_default="")  # last trial e-mail sent: "" | soon | ended
     # Stripe subscription state (all empty while the workspace has never subscribed)
     stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

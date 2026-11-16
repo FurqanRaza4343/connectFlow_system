@@ -11,7 +11,7 @@ import redis
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from .. import wa_client as wa
+from .. import access, wa_client as wa
 from ..config_ops import ops
 from ..db import get_db
 from ..deps import Ctx, need_role, require_verified, TCtx
@@ -80,6 +80,7 @@ async def list_instances(ctx: TCtx = Depends(need_role("viewer")), db: Session =
 @router.post("", status_code=201)
 async def create_instance(body: CreateIn, ctx: TCtx = Depends(need_role("admin")), db: Session = Depends(get_db)) -> Any:
     require_verified(ctx)
+    access.require_active(ctx.tenant)
     # Plan limit, atomically. This handler is `async` but the DB session is synchronous: waiting for a row lock blocks the whole
     # event loop, so NO lock may be held across an `await`. Therefore: lock the tenant row, count, insert the number as a reservation
     # and COMMIT (all synchronous, microseconds), and only then talk to the gateway. A parallel call that was waiting on the lock

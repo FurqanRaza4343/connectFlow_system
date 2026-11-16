@@ -1,6 +1,6 @@
 """Run the end-to-end suites against a running stack (docker compose up).
 
-    python backend/tests/run_e2e.py [name ...]        # names: m2 m3 m4 flow_m3 m3_engine security multinumber status migrate_legacy m5 m5_billing media media_cloudinary p0 p0_ai
+    python backend/tests/run_e2e.py [name ...]        # names: m2 m3 m4 flow_m3 m3_engine security multinumber status onboarding migrate_legacy m5 m5_billing media media_cloudinary p0 p0_ai
 
 Env (see tests/e2e/e2e_env.py): E2E_BASE_URL, E2E_APP_HOST, E2E_ADMIN_HOST, E2E_INFRA_DIR, E2E_ADMIN_PASSWORD,
 E2E_DOCKER_NETWORK (default <compose project>_default), E2E_LOG_DIR (default backend/tests/e2e/logs).
@@ -26,6 +26,7 @@ SUITES = {
     "m5": "test_m5_security.py",
     "m5_billing": "test_m5_billing.py",  # needs the fake-Stripe wrapper; skips itself otherwise
     "media": "test_media.py",  # needs AI_FAKE + OUTREACH_FAKE_SEND
+    "onboarding": "test_onboarding.py",  # first-run wizard + 14-day trial (no AI / WhatsApp needed)
     "status": "test_status.py",  # WhatsApp Status: posts, brand kit, campaigns (needs AI_FAKE + OUTREACH_FAKE_SEND; the worker posts due items and does the AI steps)
     "migrate_legacy": "test_migrate_legacy.py",  # the legacy importer (python -m app.tools.migrate_legacy): dry run, apply, re-run, isolation; needs no fake engine
     "p0": "test_p0_scale.py",  # counters, recovery threshold, locks, byte cache, retention; the 2-worker part needs AI_FAKE + OUTREACH_FAKE_SEND

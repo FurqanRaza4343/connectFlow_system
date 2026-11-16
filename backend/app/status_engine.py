@@ -22,7 +22,7 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from . import ai, status_render as render, wa_client
+from . import access, ai, status_render as render, wa_client
 from .config import settings
 from .db import SessionLocal
 from .leadtools import normalize_phone
@@ -370,6 +370,8 @@ _EDITABLE = ("mode", "kind", "template", "headline", "sub", "badge", "cta", "cap
 async def create_post(db: Session, tenant: Tenant, data: dict[str, Any], *, action: str = "draft", scheduled_at: datetime | None = None, style: str = "card",
                       bg_upload: str = "", auto: bool = False, campaign_id: str | None = None, plan_theme: str = "", plan_day: int = 0) -> StatusPost:
     """action: draft | schedule (needs scheduled_at) | post (posts right now)."""
+    if access.trial_expired(tenant):
+        raise StatusError(402, access.TRIAL_ENDED_MSG)
     f = clean_fields(data)
     if f["kind"] == "image" and not f["headline"] and not (f["plain"] and bg_upload):
         raise StatusError(422, "Write a headline for the picture")
@@ -497,6 +499,8 @@ async def post_now(db: Session, tenant_id: str, post_id: str, *, manual: bool) -
         raise StatusError(409, f'a "{s.state}" post cannot be posted')
     tenant = db.get(Tenant, tenant_id)
     assert tenant is not None
+    if access.trial_expired(tenant):
+        raise StatusError(402, access.TRIAL_ENDED_MSG)
     op = db.get(OutreachProfile, tenant_id)
     p = get_profile(db, tenant_id)
     if op is None or op.dry_run:   # no Outreach profile yet = the default, which is dry-run ON

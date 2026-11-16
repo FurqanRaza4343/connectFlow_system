@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from .. import access
 from ..config import settings
 from ..db import get_db
 from ..models import AuditLog, Membership, Tenant, User
@@ -107,7 +108,7 @@ async def callback(request: Request, code: str = "", state: str = "", error: str
         db.add(AuditLog(user_id=user.id, action="login.google", detail=email))
     else:
         name = (g.get("name") or email.split("@")[0])[:120]
-        tenant = Tenant(name=f"{name}'s workspace"[:120], plan_id="trial")
+        tenant = Tenant(name=f"{name}'s workspace"[:120], plan_id="trial", trial_ends_at=access.new_trial_end())
         user = User(email=email, name=name, google_sub=sub, email_verified_at=datetime.now(timezone.utc), avatar_url=(g.get("picture") or "")[:500],
                     password_hash=hash_password(secrets.token_urlsafe(32)))  # random: password login stays impossible until a reset
         db.add_all([tenant, user])

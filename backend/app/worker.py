@@ -167,6 +167,8 @@ async def billing_loop() -> None:
                         n = stripe_billing.expire_grace(db)
                     if n:
                         log.info("billing: %d workspace(s) moved to Trial after the grace period", n)
+                    from .access import trial_reminders
+                    await trial_reminders()
         except Exception:  # noqa: BLE001
             log.exception("billing loop failed")
         await asyncio.sleep(3600)

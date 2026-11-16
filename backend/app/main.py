@@ -14,7 +14,7 @@ from .config import settings
 from .db import SessionLocal, engine
 from .locks import ADV_STARTUP, advisory_lock, advisory_unlock
 from .models import Membership, Plan, Tenant, User
-from .routers import account, assets, twofactor, admin, admin_ext, admin_ops, admin_security, auth, billing, branding, google, instances, internal, drafts, keys, leads, outreach, status, team, v1, webhooks
+from .routers import account, assets, twofactor, admin, admin_ext, admin_ops, admin_security, auth, billing, branding, google, onboarding, instances, internal, drafts, keys, leads, outreach, status, team, v1, webhooks
 from .security import hash_password
 from .status_engine import StatusError
 from .telemetry import sweeper, v1_guard
@@ -42,6 +42,7 @@ app.include_router(drafts.router)
 app.include_router(outreach.router)
 app.include_router(assets.router)
 app.include_router(status.router)
+app.include_router(onboarding.router)
 
 @app.exception_handler(StatusError)
 async def _status_error(_: Request, e: StatusError) -> JSONResponse:

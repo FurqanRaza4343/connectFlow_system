@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, exists, func, or_
 from sqlalchemy.orm import Session
 
-from . import ai, assetlib, counters, media, storage, wa_client as wa
+from . import access, ai, assetlib, counters, media, storage, wa_client as wa
 from .alerts import preview, send_alert
 from .config import settings
 from .deps import rds
@@ -369,6 +369,8 @@ async def send_draft(db: Session, d: Draft) -> str:
         return _fail(db, d, f"lead already {lead.status}")
     if not lead.whatsapp:
         return _fail(db, d, "lead has no WhatsApp number")
+    if tenant and access.trial_expired(tenant):
+        return _back_to_pending(db, d, access.TRIAL_ENDED_MSG)
     rows = instance_rows(db, d.tenant_id, p, week=False)
 
     if d.kind == "first":

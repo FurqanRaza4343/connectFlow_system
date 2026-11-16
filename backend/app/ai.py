@@ -71,9 +71,12 @@ def _gate_sync(tenant_id: str) -> None:
         pass
     with SessionLocal() as db:
         try:
+            from . import access
+            from .models import Tenant
+            access.require_active(db.get(Tenant, tenant_id))  # an ended free trial cannot use the AI
             reserve_ai(db, tenant_id)
         except HTTPException as e:
-            raise AILimitError(str(e.detail), 429)
+            raise AILimitError(str(e.detail), e.status_code if e.status_code == 402 else 429)
     _bump_usage(tenant_id, calls=1)
     try:
         n = rds.incr(ai_counters.calls_key(day))  # always counted (the admin page shows it even with no cap); the breaker only acts when a cap is set

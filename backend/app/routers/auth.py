@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from ..mailer import layout, send_email
 from ..models import AuditLog, Invite, Membership, Tenant, User
-from .. import abuse, clerk_auth, mfa, tokens
+from .. import abuse, access, clerk_auth, mfa, tokens
 from ..tokens import digest
 from ..security import COOKIE, DUMMY_HASH, hash_password, make_token, verify_password
 
@@ -63,6 +63,8 @@ def _me(ctx: Ctx) -> dict:
                     "brand": {"color": t.brand_color, "sidebar": t.sidebar_color, "page": t.page_color, "logo": t.logo_data},
                     "website": t.website_url} if t else None),
         "role": ctx.role,
+        "trial": access.trial_state(t),
+        "onboarding": {"needed": bool(t and t.onboarded_at is None)},
     }
 
 
@@ -138,7 +140,7 @@ async def clerk_exchange(body: ClerkIn, request: Request, response: Response, db
             db.add(AuditLog(tenant_id=inv.tenant_id, user_id=user.id, action="team.join", detail=email))
         else:
             label = body.company.strip() or (f"{ident['name'] or email.split('@')[0]}'s workspace")
-            t = Tenant(name=label[:120], plan_id="trial")
+            t = Tenant(name=label[:120], plan_id="trial", trial_ends_at=access.new_trial_end())
             db.add(t)
             db.flush()
             db.add(Membership(user_id=user.id, tenant_id=t.id, role="owner"))
@@ -156,7 +158,7 @@ async def signup(body: SignupIn, request: Request, response: Response, db: Sessi
     abuse.check_email_allowed(email)
     if db.query(User).filter(User.email == email).first():
         raise HTTPException(409, "An account with this email already exists")
-    tenant = Tenant(name=body.company.strip(), plan_id="trial")
+    tenant = Tenant(name=body.company.strip(), plan_id="trial", trial_ends_at=access.new_trial_end())
     user = User(email=email, name=body.name.strip(), password_hash=hash_password(body.password))
     db.add_all([tenant, user])
     db.flush()

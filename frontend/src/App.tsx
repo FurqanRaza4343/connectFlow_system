@@ -16,6 +16,8 @@ import { Status } from './pages/Status';
 import { Bell } from './components/Bell';
 import { TokenFlow, tokenFromUrl } from './pages/TokenFlow';
 import { Logo } from './components/Logo';
+import { Onboarding } from './components/Onboarding';
+import { TrialBanner } from './components/TrialBanner';
 import { PlanPrompt, rememberPlanFromUrl } from './components/PlanPrompt';
 
 rememberPlanFromUrl(); // pricing page links arrive as /?plan=starter#signup; Login strips the query, so capture it first
@@ -55,6 +57,8 @@ export function App() {
   if (flow && me !== undefined) return <TokenFlow flow={flow} me={me} onDone={(m) => { history.replaceState(null, '', location.pathname); if (m) setMe(m); location.reload(); }} />;
   if (me === undefined) return <div className="center muted">Loading…</div>;
   if (me === null) return <AuthGate onDone={setMe} fallback={<Login onDone={setMe} />} />;
+
+  if (me.onboarding?.needed && me.role === 'owner') return <Onboarding onDone={load} />;
 
   const t = me.tenant;
   const isAdmin = ['owner', 'admin'].includes(me.role);
@@ -97,6 +101,7 @@ export function App() {
             <button onClick={resend}>Resend email</button>
           </div>
         )}
+        {me.trial && <TrialBanner trial={me.trial} canUpgrade={isAdmin} onUpgrade={() => go('billing')} />}
         {notice && <div className="banner ok" onClick={() => setNotice('')}>{notice}</div>}
         {me.role === 'owner' && me.user.emailVerified && me.tenant?.plan.id === 'trial' && <PlanPrompt onGo={goHash} />}
         <main>

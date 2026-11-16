@@ -6,6 +6,8 @@ export type Me = {
     plan: { id: string; name: string; maxInstances: number; maxMsgsDay: number; maxMembers: number };
   } | null;
   role: string;
+  trial?: { endsAt: string; daysLeft: number; expired: boolean } | null;
+  onboarding?: { needed: boolean };
 };
 export type Instance = { id: string; label: string; phone: string; status: string; engine: string; outreachEnabled?: boolean; overLimit?: boolean; createdAt: string };
 export type Via = { id: string; label: string; phone: string; status: string } | null;
